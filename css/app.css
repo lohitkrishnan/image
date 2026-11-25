@@ -1905,7 +1905,7 @@ body.has-mobile-cta .toast-container {
     outline-offset: 1px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 720px), (max-width: 960px) and (max-height: 500px) {
     .workspace-tabs {
         display: none;
     }
@@ -1930,7 +1930,7 @@ body.has-mobile-cta .toast-container {
     display: none;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 720px), (max-width: 960px) and (max-height: 500px) {
     .app-header {
         position: static;
     }
@@ -2122,4 +2122,62 @@ body.has-mobile-cta .toast-container {
     border-color: var(--accent);
     outline: none;
     background: var(--accent-soft);
+}
+
+/* iPhones zoom the whole page when a text box's font is under 16px, and don't zoom back out.
+   On touch screens every text box uses 16px. */
+@media (pointer: coarse) {
+    .input,
+    .input-sm,
+    select,
+    textarea,
+    input[type="text"],
+    input[type="number"],
+    input[type="password"],
+    input[type="search"],
+    input[type="email"],
+    input[type="date"] {
+        font-size: 16px;
+    }
+}
+
+/* Keep the share/save panel above the editors' bottom bars. */
+body.ed-phone .deliver-sheet {
+    bottom: calc(var(--ed-dock-h, 120px) + 0.5rem);
+}
+
+body.pe-phone .deliver-sheet {
+    bottom: calc(var(--pe-dock-h, 64px) + 0.5rem);
+}
+
+/* Phones turned sideways: the panel opens as a drawer on the right so the picture stays visible. */
+@media (max-width: 960px) and (max-height: 500px) and (orientation: landscape) {
+    body.ed-phone #ed-side {
+        left: auto;
+        top: 0;
+        width: min(300px, 46vw);
+        max-height: none;
+        border-radius: 14px 0 0 14px;
+        transform: translateX(110%);
+    }
+
+    body.ed-phone #ed-side.is-open {
+        transform: none;
+    }
+
+    body.ed-phone #ws-edit .ed-stage {
+        height: calc(100svh - var(--ed-dock-h, 120px) - 12px);
+    }
+
+    body.ed-phone.ed-sheet-open #ws-edit .ed-stage {
+        margin-right: min(300px, 46vw);
+    }
+}
+
+.ph-spec-slot:empty {
+    display: none;
+}
+
+.ph-spec-slot {
+    margin: 0.4rem 0 0.8rem;
 }

@@ -233,6 +233,7 @@
                             </div>
                         </div>
                         <input type="file" id="ph-file-input" accept="image/*,.heic,.heif" hidden />
+                        <div id="ph-spec-slot" class="ph-spec-slot"></div>
 
                         <div id="ph-dropzone" class="dropzone ph-dropzone" tabindex="0" role="button">
                             <div class="dropzone-prompt"><strong>Drop a photo here</strong> or click to choose</div>
@@ -273,6 +274,7 @@
                 <aside class="ws-side-col">
                     <div class="panel-card sticky-panel">
                         <div class="form-stack">
+                            <div id="ph-spec-block" class="form-stack ph-spec-block">
                             <div class="field-group">
                                 <label class="field-label" for="ph-spec">Document</label>
                                 <select id="ph-spec" class="input"></select>
@@ -307,6 +309,8 @@
                                     <span class="muted">–</span>
                                     <input type="number" id="ph-c-max" class="input input-sm" min="1" placeholder="max" aria-label="Maximum file size in KB" />
                                 </div>
+                            </div>
+
                             </div>
 
                             <hr class="divider" />

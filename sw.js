@@ -5,7 +5,7 @@
 // old one and takes over only when the user chooses to reload, so work in progress is safe.
 
 const CACHE_PREFIX = 'lk-image-studio-';
-const VERSION = 'd30cd5d08031';
+const VERSION = '0b5b6abb2492';
 const FILES = [
     './',
     './css/app.css',

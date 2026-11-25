@@ -325,6 +325,9 @@ export function initEditWorkspace({ root, toast }) {
     let zoomRegionKey = '';
     const pointers = new Map(); // active pointers on the canvas, for pinch
     let pinch = null;
+    let inlineScale = 1;
+    let lastTap = { id: null, t: 0 };
+    let scrollStageOnPhone = false;
     const lastStyle = {
         text: { color: '#e11d48', v: 24, bg: false },
         arrow: { color: '#e11d48', v: 20 },
@@ -850,13 +853,19 @@ export function initEditWorkspace({ root, toast }) {
         editingId = a.id;
         const p = toScreen(a.x, a.y);
         const fontPx = a.size * view.scale;
+        // iPhones zoom the page for text boxes under 16px: on touch screens type at 16px and
+        // shrink the box visually to the annotation's size instead.
+        const k = COARSE && fontPx < 16 ? fontPx / 16 : 1;
+        inlineScale = k;
         Object.assign(inlineText.style, {
             left: `${p.x}px`,
             top: `${p.y}px`,
-            fontSize: `${fontPx}px`,
+            fontSize: `${fontPx / k}px`,
             lineHeight: String(LINE_HEIGHT),
             color: a.color,
-            minWidth: `${Math.max(60, fontPx * 4)}px`,
+            minWidth: `${Math.max(60, fontPx * 4) / k}px`,
+            transform: k === 1 ? '' : `scale(${k})`,
+            transformOrigin: '0 0',
         });
         inlineText.value = a.text;
         inlineText.hidden = false;
@@ -869,7 +878,7 @@ export function initEditWorkspace({ root, toast }) {
         inlineText.style.height = 'auto';
         inlineText.style.width = 'auto';
         inlineText.style.height = `${inlineText.scrollHeight}px`;
-        inlineText.style.width = `${Math.min(view.cssW, inlineText.scrollWidth + 12)}px`;
+        inlineText.style.width = `${Math.min(view.cssW / inlineScale, inlineText.scrollWidth + 12)}px`;
     }
 
     function finishInlineEdit() {
@@ -985,11 +994,24 @@ export function initEditWorkspace({ root, toast }) {
                 return;
             }
             const hit = hitAnnotation(p);
+            // Double-tap on text edits it (touch screens don't send dblclick here).
+            if (hit && hit.type === 'text' && e.pointerType !== 'mouse' && lastTap.id === hit.id && performance.now() - lastTap.t < 400) {
+                lastTap = { id: null, t: 0 };
+                selectedId = hit.id;
+                beginChange();
+                renderProps();
+                startInlineEdit(hit);
+                return;
+            }
+            lastTap = { id: hit ? hit.id : null, t: performance.now() };
             selectedId = hit ? hit.id : null;
             renderProps();
             if (hit) {
                 beginChange();
                 drag = { kind: 'move', id: hit.id, p0: p, start: clone(hit) };
+            } else if (e.pointerType === 'touch') {
+                // A finger on empty canvas pans the picture when zoomed in, or scrolls the page.
+                drag = { kind: 'swipe', x: e.clientX, y: e.clientY, px: userZoom.px, py: userZoom.py, zoomed: userZoom.z > 1.01 };
             }
             draw();
             return;
@@ -1065,6 +1087,14 @@ export function initEditWorkspace({ root, toast }) {
                 if (key.includes('w')) x1 = p.x;
                 if (key.includes('e')) x2 = p.x;
                 Object.assign(a, { x1, y1, x2, y2 });
+            }
+        } else if (drag.kind === 'swipe') {
+            if (drag.zoomed) {
+                userZoom = { ...userZoom, px: drag.px + (e.clientX - drag.x), py: drag.py + (e.clientY - drag.y) };
+                fitView();
+            } else {
+                window.scrollBy(0, drag.y - e.clientY);
+                drag.y = e.clientY;
             }
         } else if (drag.kind === 'crop-move') {
             const d = drag.start;
@@ -1847,7 +1877,7 @@ export function initEditWorkspace({ root, toast }) {
     // Below 720px wide, the tools move into a dock fixed to the bottom of the screen and the
     // side panel becomes a pull-up sheet showing one section at a time, so the picture stays
     // in view. The same controls are reused; nothing is duplicated.
-    const phoneMq = matchMedia('(max-width: 720px)');
+    const phoneMq = matchMedia('(max-width: 720px), (max-width: 960px) and (max-height: 500px)');
     const toolbar = root.querySelector('.ed-toolbar');
     const toolbarHome = { parent: toolbar.parentElement, next: toolbar.nextElementSibling };
     const side = $('ed-side');
@@ -1915,7 +1945,11 @@ export function initEditWorkspace({ root, toast }) {
     function layoutPhone() {
         if (!phoneActive) return;
         const dockH = dock.offsetHeight;
-        const sheetH = side.classList.contains('is-open') ? side.offsetHeight : 0;
+        const open = side.classList.contains('is-open');
+        // Sideways phones show the panel as a drawer beside the picture, not below it.
+        const drawer = matchMedia('(max-height: 500px) and (orientation: landscape)').matches;
+        const sheetH = open && !drawer ? side.offsetHeight : 0;
+        document.body.classList.toggle('ed-sheet-open', open);
         document.documentElement.style.setProperty('--ed-dock-h', `${dockH}px`);
         document.documentElement.style.setProperty('--ed-sheet-h', `${sheetH}px`);
         if (side.classList.contains('is-open')) {
@@ -1935,9 +1969,11 @@ export function initEditWorkspace({ root, toast }) {
             dock.hidden = !active;
             if (active) {
                 dockTools.appendChild(toolbar);
+                scrollStageOnPhone = true;
             } else {
                 toolbarHome.parent.insertBefore(toolbar, toolbarHome.next);
                 openSheet(null);
+                document.body.classList.remove('ed-sheet-open');
                 document.documentElement.style.removeProperty('--ed-dock-h');
                 document.documentElement.style.removeProperty('--ed-sheet-h');
             }
@@ -1946,9 +1982,19 @@ export function initEditWorkspace({ root, toast }) {
         selBtn.disabled = selectedId == null;
         if (selectedId == null && side.dataset.sheet === 'selected' && side.classList.contains('is-open')) openSheet(null);
         if (active) requestAnimationFrame(layoutPhone);
+        if (active && scrollStageOnPhone) {
+            scrollStageOnPhone = false;
+            // Bring the whole picture into view, above the tool dock.
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                const y = stage.getBoundingClientRect().top + window.scrollY - 8;
+                window.scrollTo({ top: y, behavior: 'smooth' });
+            }));
+        }
     }
 
     phoneMq.addEventListener?.('change', updatePhone);
+    document.addEventListener('deliver:open', () => { if (phoneActive) openSheet(null); });
+    window.addEventListener('resize', () => { if (phoneActive) requestAnimationFrame(layoutPhone); });
     new MutationObserver(updatePhone).observe(root, { attributes: true, attributeFilter: ['hidden'] });
     new ResizeObserver(() => { if (phoneActive) layoutPhone(); }).observe(side);
 
@@ -1992,6 +2038,7 @@ export function initEditWorkspace({ root, toast }) {
                 draw();
             });
             updateOutDesc();
+            scrollStageOnPhone = true;
             updatePhoneSoon();
         } catch (err) {
             toast(err.message || String(err), 'error');

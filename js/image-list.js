@@ -188,7 +188,7 @@ export function createImageList({ container, toast, onChange, label = 'image' })
             li.dataset.id = String(it.id);
             li.draggable = true;
             li.innerHTML = `
-                <div class="il-thumb-wrap"><img class="il-thumb" src="${it.thumb}" alt="" /><span class="il-num">${i + 1}</span></div>
+                <div class="il-thumb-wrap"><img class="il-thumb" src="${it.thumb}" alt="" draggable="false" /><span class="il-num">${i + 1}</span></div>
                 <div class="il-name" title="${escapeHtml(it.name)}">${escapeHtml(it.name)}</div>
                 <div class="il-meta">${it.width} × ${it.height} · ${formatBytes(it.size)}</div>
                 <div class="il-btns">

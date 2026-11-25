@@ -617,6 +617,19 @@ export function initPhotoWorkspace({ root, toast }) {
     }).observe(stage);
     new MutationObserver(draw).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
+    // On narrow screens the side panel sits below the photo; move the document picker above the
+    // photo there, so people choose their passport or visa before framing and downloading.
+    const specBlock = $('ph-spec-block');
+    const specHome = { parent: specBlock.parentElement, next: specBlock.nextElementSibling };
+    const narrowMq = matchMedia('(max-width: 960px)');
+    const placeSpec = () => {
+        if (narrowMq.matches) $('ph-spec-slot').appendChild(specBlock);
+        else specHome.parent.insertBefore(specBlock, specHome.next);
+        if (!root.hidden && fitView()) draw();
+    };
+    narrowMq.addEventListener?.('change', placeSpec);
+    placeSpec();
+
     renderSpecInfo();
 
     return {
