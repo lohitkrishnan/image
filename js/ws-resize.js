@@ -2,7 +2,7 @@
 
 import {
     FORMATS, formatBytes, baseName, escapeHtml, downloadBlob, createCanvas, releaseCanvas,
-    decodeImage, releaseSource, drawScaled, encodeToTarget, supportsWebpEncoding, wireDropzone,
+    decodeImage, releaseSource, drawScaled, encodeToTarget, flatten, supportsWebpEncoding, wireDropzone,
 } from './image-io.js';
 import { createZip } from './zip.js';
 import { makeLandscapeSample } from './samples.js';
@@ -33,6 +33,11 @@ const PRESETS = [
         id: 'passport-seva', label: 'Passport Seva upload: 630 × 810 px, under 250 KB',
         s: { format: 'jpg', mode: 'exact', width: 630, height: 810, fit: 'cover', minKB: null, maxKB: 250, allowShrink: false },
         note: 'This only resizes. To frame the face correctly, use the Passport & ID Photo tab.',
+    },
+    {
+        id: 'avatar', label: 'Circular avatar: 512 px PNG',
+        s: { format: 'png', mode: 'avatar', avatar: 512, minKB: null, maxKB: null },
+        note: 'Crops the centre of each photo into a circle with transparent corners.',
     },
     {
         id: 'web', label: 'Website: max 1920 px, WebP',
@@ -112,6 +117,7 @@ export function initResizeWorkspace({ root, toast, sendToEditor }) {
         $('rs-size-exact').hidden = m !== 'exact';
         $('rs-size-percent').hidden = m !== 'percent';
         $('rs-size-print').hidden = m !== 'print';
+        $('rs-size-avatar').hidden = m !== 'avatar';
         $('rs-fit-row').hidden = !(m === 'exact' || m === 'print');
         $('rs-noup-row').hidden = !(m === 'longest' || m === 'percent');
         if (m === 'print') {
@@ -149,6 +155,7 @@ export function initResizeWorkspace({ root, toast, sendToEditor }) {
         if (mode === 'longest') s.longest = num('rs-longest');
         if (mode === 'exact') { s.width = num('rs-width'); s.height = num('rs-height'); }
         if (mode === 'percent') s.percent = num('rs-percent');
+        if (mode === 'avatar') s.avatar = num('rs-avatar');
         if (mode === 'print') {
             const p = printPixels();
             s.width = p.width; s.height = p.height; s.dpi = p.dpi;
@@ -160,6 +167,7 @@ export function initResizeWorkspace({ root, toast, sendToEditor }) {
         if (s.mode === 'longest' && !s.longest) return 'Enter the longest side in pixels.';
         if ((s.mode === 'exact' || s.mode === 'print') && (!s.width || !s.height)) return 'Enter both width and height.';
         if (s.mode === 'percent' && !s.percent) return 'Enter a scale percentage.';
+        if (s.mode === 'avatar' && !s.avatar) return 'Enter the avatar size in pixels.';
         if (s.minKB && s.maxKB && s.minKB >= s.maxKB) return 'The minimum file size must be smaller than the maximum.';
         return null;
     }
@@ -173,6 +181,7 @@ export function initResizeWorkspace({ root, toast, sendToEditor }) {
         setFormat(s.format === 'webp' && !webpOk ? 'jpg' : s.format);
         modeSel.value = s.mode;
         if (s.longest) $('rs-longest').value = s.longest;
+        if (s.avatar) $('rs-avatar').value = s.avatar;
         if (s.width) $('rs-width').value = s.width;
         if (s.height) $('rs-height').value = s.height;
         if (s.fit) setFit(s.fit);
@@ -202,7 +211,7 @@ export function initResizeWorkspace({ root, toast, sendToEditor }) {
     modeSel.addEventListener('change', onSettingChanged);
     qualityRange.addEventListener('input', () => { qualityVal.textContent = qualityRange.value; });
     qualityRange.addEventListener('change', onSettingChanged);
-    for (const id of ['rs-longest', 'rs-width', 'rs-height', 'rs-percent', 'rs-print-w', 'rs-print-h', 'rs-print-unit', 'rs-dpi', 'rs-min-kb', 'rs-max-kb', 'rs-allow-shrink', 'rs-no-upscale']) {
+    for (const id of ['rs-longest', 'rs-width', 'rs-height', 'rs-percent', 'rs-print-w', 'rs-print-h', 'rs-print-unit', 'rs-dpi', 'rs-min-kb', 'rs-max-kb', 'rs-allow-shrink', 'rs-no-upscale', 'rs-avatar']) {
         $(id).addEventListener('input', onSettingChanged);
         $(id).addEventListener('change', onSettingChanged);
     }
@@ -369,9 +378,10 @@ export function initResizeWorkspace({ root, toast, sendToEditor }) {
             let k = s.percent / 100;
             if (s.noUpscale) k = Math.min(1, k);
             w = srcW * k; h = srcH * k;
-        } else if (s.mode === 'exact' || s.mode === 'print') {
-            w = s.width; h = s.height;
-            if (s.fit === 'cover') {
+        } else if (s.mode === 'exact' || s.mode === 'print' || s.mode === 'avatar') {
+            w = s.mode === 'avatar' ? s.avatar : s.width;
+            h = s.mode === 'avatar' ? s.avatar : s.height;
+            if (s.fit === 'cover' || s.mode === 'avatar') {
                 const k = Math.max(w / srcW, h / srcH);
                 const sw = w / k, sh = h / k;
                 src = { sx: (srcW - sw) / 2, sy: (srcH - sh) / 2, sw, sh };
@@ -423,8 +433,22 @@ export function initResizeWorkspace({ root, toast, sendToEditor }) {
                 const g = targetGeometry(it.width, it.height, s);
                 if (g.w * g.h > MAX_OUTPUT_PIXELS) throw new Error(`${g.w} × ${g.h} px is too large for the browser to create.`);
                 dec = await decodeImage(it.file);
-                const bg = FORMATS[fmtKey].alpha ? null : '#ffffff';
+                const avatar = s.mode === 'avatar';
+                const bg = FORMATS[fmtKey].alpha || avatar ? null : '#ffffff';
                 canvas = render1(dec.source, g, bg);
+                if (avatar) {
+                    const c = canvas.getContext('2d');
+                    c.globalCompositeOperation = 'destination-in';
+                    c.beginPath();
+                    c.arc(g.w / 2, g.h / 2, Math.min(g.w, g.h) / 2, 0, Math.PI * 2);
+                    c.fill();
+                    c.globalCompositeOperation = 'source-over';
+                    if (!FORMATS[fmtKey].alpha) {
+                        const flat = flatten(canvas, '#ffffff');
+                        releaseCanvas(canvas);
+                        canvas = flat;
+                    }
+                }
                 releaseSource(dec.source);
                 dec = null;
                 const r = await encodeToTarget(canvas, {

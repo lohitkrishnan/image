@@ -14,9 +14,19 @@ Live at **https://lohitkrishnan.com/image/**
 2. **Passport & ID Photo**: line the head up against guides for India passport and visa, OCI, US,
    UK and Schengen photos (or custom sizes), then save the upload file at the required pixel size
    and file size, or a 4 × 6 in / A4 print sheet at 300 DPI. It only crops and resizes.
-3. **Edit & Annotate**: crop with aspect presets, rotate, flip, straighten, adjust brightness,
-   contrast and saturation, and add text, arrows, boxes, highlights and blur/pixelate areas.
+3. **Edit & Annotate**: crop with aspect presets, rotate, flip, straighten, cut out a strip and
+   join the rest, add borders or pad to square, adjust brightness, contrast, saturation and
+   warmth, apply colour filters, and add text, arrows, boxes, highlights and blur/pixelate areas.
    Undo and redo, copy to clipboard, download as JPG, PNG or WebP.
+4. **Images to PDF**: one PDF from many images (A4, Letter, Legal, A5 or each image's own shape),
+   1–9 images per page, margins, and a quality setting that sizes images for print or email.
+   Or one PDF per image in a .zip.
+5. **Merge**: stitch images side by side, stacked or in a grid, with gaps, borders and a
+   background colour.
+6. **GIF**: make an animated slideshow (newsletter and chat sizes, crossfades, loop settings,
+   live preview) or open a GIF to play it, step through frames and save frames.
+
+Resize & Convert also makes circular avatars in bulk.
 
 ## How it works
 
@@ -29,6 +39,9 @@ needed), processed on `<canvas>`, and saved with `canvas.toBlob`.
 | Component | Licence | Use |
 | --- | --- | --- |
 | [libheif-js](https://github.com/catdad-experiments/libheif-js) 1.23.5 (`vendor/libheif/`) | LGPL-3.0 (see `vendor/libheif/LICENSE`) | Decoding HEIC/HEIF photos when the browser can't |
+| [jsPDF](https://github.com/parallax/jsPDF) 2.5.2 (`vendor/jspdf.umd.min.js`) | MIT | Images to PDF (loaded only when making a PDF) |
+| [gifenc](https://github.com/mattdesl/gifenc) 1.0.3 (`vendor/gifenc/`) | MIT (see `vendor/gifenc/LICENSE.md`) | Encoding GIFs |
+| [omggif](https://github.com/deanm/omggif) 1.0.10 (`vendor/omggif/`) | MIT (in the file header) | Decoding GIFs in the player |
 | [Lora](https://github.com/cyrealtype/Lora-Cyrillic) (`fonts/`) | SIL Open Font License 1.1 | Headings |
 
 All third-party files are served from this site; the page makes no requests to other servers

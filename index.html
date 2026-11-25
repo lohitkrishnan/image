@@ -43,13 +43,22 @@
 
         <nav class="workspace-tabs" role="tablist" aria-label="Image Studio workspaces">
             <button type="button" role="tab" id="tab-resize" class="ws-tab js-nav-tab is-active" data-tab="resize" aria-selected="true" aria-controls="ws-resize" tabindex="0">
-                <span class="tab-num">1</span> Resize, Compress &amp; Convert
+                <span class="tab-num">1</span> Resize &amp; Convert
             </button>
             <button type="button" role="tab" id="tab-photo" class="ws-tab js-nav-tab" data-tab="photo" aria-selected="false" aria-controls="ws-photo" tabindex="-1">
-                <span class="tab-num">2</span> Passport &amp; ID Photo
+                <span class="tab-num">2</span> Passport Photo
             </button>
             <button type="button" role="tab" id="tab-edit" class="ws-tab js-nav-tab" data-tab="edit" aria-selected="false" aria-controls="ws-edit" tabindex="-1">
                 <span class="tab-num">3</span> Edit &amp; Annotate
+            </button>
+            <button type="button" role="tab" id="tab-pdf" class="ws-tab js-nav-tab" data-tab="pdf" aria-selected="false" aria-controls="ws-pdf" tabindex="-1">
+                <span class="tab-num">4</span> Images to PDF
+            </button>
+            <button type="button" role="tab" id="tab-merge" class="ws-tab js-nav-tab" data-tab="merge" aria-selected="false" aria-controls="ws-merge" tabindex="-1">
+                <span class="tab-num">5</span> Merge
+            </button>
+            <button type="button" role="tab" id="tab-gif" class="ws-tab js-nav-tab" data-tab="gif" aria-selected="false" aria-controls="ws-gif" tabindex="-1">
+                <span class="tab-num">6</span> GIF
             </button>
         </nav>
     </header>
@@ -115,7 +124,12 @@
                                     <option value="exact">Exact width × height (px)</option>
                                     <option value="percent">Scale (%)</option>
                                     <option value="print">Print size (cm / mm / in)</option>
+                                    <option value="avatar">Circular avatar</option>
                                 </select>
+                                <div id="rs-size-avatar" class="inline-fields" hidden>
+                                    <input type="number" id="rs-avatar" class="input input-sm" min="16" max="4000" value="512" aria-label="Avatar size in pixels" />
+                                    <span class="muted">px circle, centred. PNG or WebP keep the corners transparent.</span>
+                                </div>
                                 <div id="rs-size-longest" class="inline-fields" hidden>
                                     <input type="number" id="rs-longest" class="input input-sm" min="16" max="20000" value="1920" aria-label="Longest side in pixels" />
                                     <span class="muted">px</span>
@@ -354,6 +368,17 @@
                             <canvas id="ed-canvas" hidden></canvas>
                             <textarea id="ed-inline-text" class="ed-inline-text" hidden aria-label="Annotation text"></textarea>
                         </div>
+                        <div id="ed-cut-bar" class="ed-crop-bar" hidden>
+                            <span class="muted">Drag across the image to mark the strip to remove.</span>
+                            <div class="segmented-control" role="group" aria-label="Strip direction">
+                                <button type="button" class="seg-btn is-active" data-cutaxis="h">Horizontal</button>
+                                <button type="button" class="seg-btn" data-cutaxis="v">Vertical</button>
+                            </div>
+                            <span id="ed-cut-size" class="muted"></span>
+                            <span class="spacer"></span>
+                            <button type="button" id="ed-cut-cancel" class="btn btn-ghost btn-sm">Cancel</button>
+                            <button type="button" id="ed-cut-apply" class="btn btn-primary btn-sm" disabled>Remove Strip</button>
+                        </div>
                         <div id="ed-crop-bar" class="ed-crop-bar" hidden>
                             <label class="muted" for="ed-crop-aspect">Shape</label>
                             <select id="ed-crop-aspect" class="input input-sm">
@@ -392,6 +417,19 @@
                             </div>
 
                             <div class="field-group">
+                                <h3 class="side-title">Canvas</h3>
+                                <button type="button" id="ed-cut-btn" class="btn btn-ghost btn-xs" disabled title="Remove a horizontal or vertical strip and join the rest">Cut out a strip…</button>
+                                <div class="inline-fields">
+                                    <label class="muted" for="ed-border">Border</label>
+                                    <input type="number" id="ed-border" class="input input-sm" min="1" max="2000" value="40" aria-label="Border width in pixels" />
+                                    <span class="muted">px</span>
+                                    <input type="color" id="ed-border-color" value="#ffffff" aria-label="Border colour" />
+                                    <button type="button" id="ed-border-btn" class="btn btn-ghost btn-xs" disabled>Add</button>
+                                </div>
+                                <button type="button" id="ed-square-btn" class="btn btn-ghost btn-xs" disabled title="Add borders in the border colour to make the image square">Pad to square</button>
+                            </div>
+
+                            <div class="field-group">
                                 <h3 class="side-title">Adjust</h3>
                                 <div class="range-row">
                                     <label class="muted" for="ed-brightness">Brightness</label>
@@ -407,6 +445,24 @@
                                     <label class="muted" for="ed-saturation">Saturation</label>
                                     <input type="range" id="ed-saturation" min="-100" max="100" value="0" disabled />
                                     <span id="ed-saturation-val" class="muted">0</span>
+                                </div>
+                                <div class="range-row">
+                                    <label class="muted" for="ed-warmth">Warmth</label>
+                                    <input type="range" id="ed-warmth" min="-100" max="100" value="0" disabled />
+                                    <span id="ed-warmth-val" class="muted">0</span>
+                                </div>
+                                <span class="field-label" id="ed-filter-label">Filter</span>
+                                <div class="filter-chips" role="group" aria-labelledby="ed-filter-label">
+                                    <button type="button" class="chip is-active" data-filter="none" disabled>None</button>
+                                    <button type="button" class="chip" data-filter="bw" disabled>B&amp;W</button>
+                                    <button type="button" class="chip" data-filter="noir" disabled>Noir</button>
+                                    <button type="button" class="chip" data-filter="sepia" disabled>Sepia</button>
+                                    <button type="button" class="chip" data-filter="vintage" disabled>Vintage</button>
+                                    <button type="button" class="chip" data-filter="fade" disabled>Faded</button>
+                                    <button type="button" class="chip" data-filter="vivid" disabled>Vivid</button>
+                                    <button type="button" class="chip" data-filter="warm" disabled>Warm</button>
+                                    <button type="button" class="chip" data-filter="cool" disabled>Cool</button>
+                                    <button type="button" class="chip" data-filter="invert" disabled>Invert</button>
                                 </div>
                                 <button type="button" id="ed-reset-adjust" class="btn btn-ghost btn-xs" disabled>Reset adjustments</button>
                             </div>
@@ -471,6 +527,358 @@
                                     <button type="button" id="ed-copy" class="btn btn-secondary btn-sm" disabled title="Copy the edited image as PNG">Copy</button>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+        </section>
+
+        <!-- WORKSPACE 4: Images to PDF -->
+        <section id="ws-pdf" class="workspace-panel" role="tabpanel" aria-labelledby="tab-pdf" hidden>
+            <div class="ws-grid-2col">
+                <div class="ws-main-col">
+                    <div class="panel-card">
+                        <div class="dropzone-header">
+                            <div>
+                                <h2 class="panel-title">Images to PDF</h2>
+                                <p class="panel-sub">Turn photos, scans or screenshots into one PDF. Drag the thumbnails to change the order.</p>
+                            </div>
+                            <div class="header-btn-group">
+                                <button type="button" id="pdf-sort-btn" class="btn btn-ghost btn-sm" disabled>Sort by name</button>
+                                <button type="button" id="pdf-clear-btn" class="btn btn-ghost btn-sm" disabled>Clear</button>
+                            </div>
+                        </div>
+                        <div id="pdf-dropzone" class="dropzone" tabindex="0" role="button">
+                            <input type="file" id="pdf-file-input" accept="image/*,.heic,.heif" multiple hidden />
+                            <div class="dropzone-prompt"><strong>Drop images here</strong> or click to choose</div>
+                        </div>
+                        <ol id="pdf-list" class="il-grid" aria-label="Images, in page order"></ol>
+                        <div class="pdf-preview-wrap" id="pdf-preview-wrap" hidden>
+                            <h3 class="side-title">Page layout preview</h3>
+                            <div id="pdf-preview" class="pdf-preview"></div>
+                        </div>
+                    </div>
+                </div>
+                <aside class="ws-side-col">
+                    <div class="panel-card sticky-panel">
+                        <div class="form-stack">
+                            <div class="field-group">
+                                <label class="field-label" for="pdf-page">Page size</label>
+                                <select id="pdf-page" class="input">
+                                    <option value="a4" selected>A4 (210 × 297 mm)</option>
+                                    <option value="letter">US Letter (8.5 × 11 in)</option>
+                                    <option value="legal">US Legal (8.5 × 14 in)</option>
+                                    <option value="a5">A5 (148 × 210 mm)</option>
+                                    <option value="fit">Same shape as each image</option>
+                                </select>
+                            </div>
+                            <div class="field-group" id="pdf-orient-group">
+                                <span class="field-label" id="pdf-orient-label">Orientation</span>
+                                <div class="segmented-control" role="group" aria-labelledby="pdf-orient-label">
+                                    <button type="button" class="seg-btn is-active" data-orient="auto">Auto</button>
+                                    <button type="button" class="seg-btn" data-orient="portrait">Portrait</button>
+                                    <button type="button" class="seg-btn" data-orient="landscape">Landscape</button>
+                                </div>
+                            </div>
+                            <div class="field-group" id="pdf-per-group">
+                                <label class="field-label" for="pdf-per">Images per page</label>
+                                <select id="pdf-per" class="input input-sm">
+                                    <option value="1" selected>1</option>
+                                    <option value="2">2</option>
+                                    <option value="4">4</option>
+                                    <option value="6">6</option>
+                                    <option value="9">9</option>
+                                </select>
+                            </div>
+                            <div class="field-group">
+                                <label class="field-label" for="pdf-margin">Margins</label>
+                                <select id="pdf-margin" class="input input-sm">
+                                    <option value="0">None</option>
+                                    <option value="6">Small</option>
+                                    <option value="12" selected>Normal</option>
+                                    <option value="20">Large</option>
+                                </select>
+                            </div>
+                            <div class="field-group" id="pdf-fit-group">
+                                <span class="field-label" id="pdf-fit-label">Image placement</span>
+                                <div class="segmented-control" role="group" aria-labelledby="pdf-fit-label">
+                                    <button type="button" class="seg-btn is-active" data-pdffit="contain">Whole image</button>
+                                    <button type="button" class="seg-btn" data-pdffit="cover">Fill (crop)</button>
+                                </div>
+                            </div>
+                            <div class="field-group">
+                                <label class="field-label" for="pdf-quality">Image quality</label>
+                                <select id="pdf-quality" class="input input-sm">
+                                    <option value="high">High (300 DPI): best for printing</option>
+                                    <option value="medium" selected>Medium (200 DPI)</option>
+                                    <option value="small">Small file (120 DPI): for email and forms</option>
+                                </select>
+                            </div>
+                            <label class="checkbox-row">
+                                <input type="checkbox" id="pdf-separate" />
+                                <span>One PDF per image (saved as a .zip)</span>
+                            </label>
+                            <div class="field-group">
+                                <label class="field-label" for="pdf-name">File name</label>
+                                <input type="text" id="pdf-name" class="input input-sm" value="images" />
+                            </div>
+                            <p id="pdf-summary" class="field-note"></p>
+                            <button type="button" id="pdf-run-btn" class="btn btn-primary" disabled>Create PDF</button>
+                            <p id="pdf-result" class="field-note" role="status"></p>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+        </section>
+
+        <!-- WORKSPACE 5: Merge -->
+        <section id="ws-merge" class="workspace-panel" role="tabpanel" aria-labelledby="tab-merge" hidden>
+            <div class="ws-grid-2col">
+                <div class="ws-main-col">
+                    <div class="panel-card">
+                        <div class="dropzone-header">
+                            <div>
+                                <h2 class="panel-title">Merge Images</h2>
+                                <p class="panel-sub">Join images side by side, stacked, or in a grid. Drag the thumbnails to change the order.</p>
+                            </div>
+                            <div class="header-btn-group">
+                                <button type="button" id="mg-reverse-btn" class="btn btn-ghost btn-sm" disabled>Reverse order</button>
+                                <button type="button" id="mg-clear-btn" class="btn btn-ghost btn-sm" disabled>Clear</button>
+                            </div>
+                        </div>
+                        <div id="mg-dropzone" class="dropzone" tabindex="0" role="button">
+                            <input type="file" id="mg-file-input" accept="image/*,.heic,.heif" multiple hidden />
+                            <div class="dropzone-prompt"><strong>Drop images here</strong> or click to choose</div>
+                        </div>
+                        <ol id="mg-list" class="il-grid" aria-label="Images, in merge order"></ol>
+                        <div id="mg-preview-wrap" class="mg-preview-wrap" hidden>
+                            <canvas id="mg-preview" aria-label="Preview of the merged image"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <aside class="ws-side-col">
+                    <div class="panel-card sticky-panel">
+                        <div class="form-stack">
+                            <div class="field-group">
+                                <span class="field-label" id="mg-dir-label">Layout</span>
+                                <div class="segmented-control" role="group" aria-labelledby="mg-dir-label">
+                                    <button type="button" class="seg-btn is-active" data-mgdir="row">Side by side</button>
+                                    <button type="button" class="seg-btn" data-mgdir="col">Stacked</button>
+                                    <button type="button" class="seg-btn" data-mgdir="grid">Grid</button>
+                                </div>
+                            </div>
+                            <div class="field-group" id="mg-cols-group" hidden>
+                                <div class="inline-fields">
+                                    <label class="muted" for="mg-cols">Columns</label>
+                                    <input type="number" id="mg-cols" class="input input-sm" min="1" max="12" value="2" />
+                                </div>
+                                <div class="segmented-control" role="group" aria-label="Grid cell fit">
+                                    <button type="button" class="seg-btn is-active" data-mgfit="cover">Fill cells (crop)</button>
+                                    <button type="button" class="seg-btn" data-mgfit="contain">Whole images</button>
+                                </div>
+                            </div>
+                            <div class="field-group" id="mg-match-group">
+                                <label class="checkbox-row">
+                                    <input type="checkbox" id="mg-match" checked />
+                                    <span id="mg-match-text">Make all images the same height</span>
+                                </label>
+                                <div id="mg-align-row" hidden>
+                                    <span class="field-label" id="mg-align-label">Align</span>
+                                    <div class="segmented-control" role="group" aria-labelledby="mg-align-label">
+                                        <button type="button" class="seg-btn" data-mgalign="start">Start</button>
+                                        <button type="button" class="seg-btn is-active" data-mgalign="center">Centre</button>
+                                        <button type="button" class="seg-btn" data-mgalign="end">End</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="range-row">
+                                <label class="muted" for="mg-gap">Gap</label>
+                                <input type="range" id="mg-gap" min="0" max="100" value="0" />
+                                <span id="mg-gap-val" class="muted">0 px</span>
+                            </div>
+                            <div class="range-row">
+                                <label class="muted" for="mg-pad">Border</label>
+                                <input type="range" id="mg-pad" min="0" max="150" value="0" />
+                                <span id="mg-pad-val" class="muted">0 px</span>
+                            </div>
+                            <div class="field-group">
+                                <span class="field-label" id="mg-bg-label">Background</span>
+                                <div class="bg-choices" role="group" aria-labelledby="mg-bg-label">
+                                    <button type="button" class="swatch is-active" data-mgbg="#ffffff" style="--sw:#ffffff" aria-label="White"></button>
+                                    <button type="button" class="swatch" data-mgbg="#000000" style="--sw:#000000" aria-label="Black"></button>
+                                    <button type="button" class="swatch" data-mgbg="#f1ede4" style="--sw:#f1ede4" aria-label="Cream"></button>
+                                    <button type="button" class="swatch swatch-clear" data-mgbg="transparent" aria-label="Transparent (PNG or WebP only)"></button>
+                                    <input type="color" id="mg-bg-custom" value="#e07b00" aria-label="Custom background colour" />
+                                </div>
+                            </div>
+                            <hr class="divider" />
+                            <div class="segmented-control seg-3" role="group" aria-label="Save format">
+                                <button type="button" class="seg-btn is-active" data-mgformat="jpg">JPG</button>
+                                <button type="button" class="seg-btn" data-mgformat="png">PNG</button>
+                                <button type="button" class="seg-btn" data-mgformat="webp">WebP</button>
+                            </div>
+                            <div class="inline-fields">
+                                <label class="muted" for="mg-max">Longest side up to</label>
+                                <input type="number" id="mg-max" class="input input-sm" min="100" max="16000" value="4000" />
+                                <span class="muted">px</span>
+                            </div>
+                            <p id="mg-desc" class="field-note"></p>
+                            <button type="button" id="mg-run-btn" class="btn btn-primary" disabled>Download Merged Image</button>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+        </section>
+
+        <!-- WORKSPACE 6: GIF maker and player -->
+        <section id="ws-gif" class="workspace-panel" role="tabpanel" aria-labelledby="tab-gif" hidden>
+            <div class="gif-mode-bar">
+                <div class="segmented-control" role="group" aria-label="GIF tools">
+                    <button type="button" class="seg-btn is-active" data-gifmode="make">Make a GIF slideshow</button>
+                    <button type="button" class="seg-btn" data-gifmode="play">Open and play a GIF</button>
+                </div>
+            </div>
+
+            <div id="gif-make" class="ws-grid-2col">
+                <div class="ws-main-col">
+                    <div class="panel-card">
+                        <div class="dropzone-header">
+                            <div>
+                                <h2 class="panel-title">GIF Slideshow</h2>
+                                <p class="panel-sub">Add photos in the order they should play. The preview updates as you change settings.</p>
+                            </div>
+                            <div class="header-btn-group">
+                                <button type="button" id="gm-clear-btn" class="btn btn-ghost btn-sm" disabled>Clear</button>
+                            </div>
+                        </div>
+                        <div id="gm-dropzone" class="dropzone" tabindex="0" role="button">
+                            <input type="file" id="gm-file-input" accept="image/*,.heic,.heif" multiple hidden />
+                            <div class="dropzone-prompt"><strong>Drop photos here</strong> or click to choose</div>
+                        </div>
+                        <ol id="gm-list" class="il-grid" aria-label="Slides, in play order"></ol>
+                        <div id="gm-preview-wrap" class="gm-preview-wrap" hidden>
+                            <canvas id="gm-preview" aria-label="Live preview of the slideshow"></canvas>
+                            <div class="btn-row">
+                                <button type="button" id="gm-play" class="btn btn-ghost btn-xs" aria-pressed="true">❚❚ Pause</button>
+                                <span id="gm-preview-info" class="muted"></span>
+                            </div>
+                        </div>
+                        <div id="gm-result" class="gm-result" hidden>
+                            <h3 class="side-title">Your GIF</h3>
+                            <img id="gm-result-img" alt="The generated GIF" />
+                            <p id="gm-result-info" class="field-note"></p>
+                        </div>
+                    </div>
+                </div>
+                <aside class="ws-side-col">
+                    <div class="panel-card sticky-panel">
+                        <div class="form-stack">
+                            <div class="field-group">
+                                <label class="field-label" for="gm-preset">Size</label>
+                                <select id="gm-preset" class="input"></select>
+                                <div id="gm-custom" class="inline-fields" hidden>
+                                    <input type="number" id="gm-w" class="input input-sm" min="16" max="1600" value="600" aria-label="Width in pixels" />
+                                    <span class="muted">×</span>
+                                    <input type="number" id="gm-h" class="input input-sm" min="16" max="1600" value="400" aria-label="Height in pixels" />
+                                    <span class="muted">px</span>
+                                </div>
+                            </div>
+                            <div class="field-group">
+                                <span class="field-label" id="gm-fit-label">Photos that don't match the shape</span>
+                                <div class="segmented-control" role="group" aria-labelledby="gm-fit-label">
+                                    <button type="button" class="seg-btn is-active" data-gmfit="cover">Crop to fill</button>
+                                    <button type="button" class="seg-btn" data-gmfit="contain">Fit with background</button>
+                                </div>
+                                <div class="inline-fields" id="gm-bg-row" hidden>
+                                    <label class="muted" for="gm-bg">Background</label>
+                                    <input type="color" id="gm-bg" value="#ffffff" />
+                                </div>
+                            </div>
+                            <div class="range-row">
+                                <label class="muted" for="gm-dur">Each photo</label>
+                                <input type="range" id="gm-dur" min="2" max="60" value="15" />
+                                <span id="gm-dur-val" class="muted">1.5 s</span>
+                            </div>
+                            <div class="field-group">
+                                <label class="field-label" for="gm-trans">Transition</label>
+                                <select id="gm-trans" class="input input-sm">
+                                    <option value="none">Cut (smallest file)</option>
+                                    <option value="fade" selected>Crossfade</option>
+                                </select>
+                            </div>
+                            <div class="field-group">
+                                <label class="field-label" for="gm-loop">Repeat</label>
+                                <select id="gm-loop" class="input input-sm">
+                                    <option value="0" selected>Forever</option>
+                                    <option value="-1">Play once</option>
+                                    <option value="2">3 times</option>
+                                </select>
+                            </div>
+                            <div class="field-group">
+                                <label class="field-label" for="gm-colors">Colours</label>
+                                <select id="gm-colors" class="input input-sm">
+                                    <option value="256" selected>256: best quality</option>
+                                    <option value="128">128: smaller file</option>
+                                    <option value="64">64: smallest file</option>
+                                </select>
+                            </div>
+                            <p class="field-note">Some email apps, including Outlook on Windows, show only the first frame, so put your most important photo first.</p>
+                            <button type="button" id="gm-run-btn" class="btn btn-primary" disabled>Create GIF</button>
+                            <div id="gm-progress" class="progress" hidden><div class="progress-bar"></div></div>
+                            <button type="button" id="gm-download" class="btn btn-secondary btn-sm" hidden>Download GIF</button>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+
+            <div id="gif-play" class="ws-grid-2col" hidden>
+                <div class="ws-main-col">
+                    <div class="panel-card">
+                        <div class="dropzone-header">
+                            <div>
+                                <h2 class="panel-title">GIF Player</h2>
+                                <p id="gp-label" class="panel-sub">Open an animated GIF to play it, step through frames and save any frame.</p>
+                            </div>
+                            <div class="header-btn-group">
+                                <button type="button" id="gp-open-btn" class="btn btn-secondary btn-sm">Open GIF</button>
+                            </div>
+                        </div>
+                        <input type="file" id="gp-file-input" accept="image/gif,.gif" hidden />
+                        <div id="gp-dropzone" class="dropzone" tabindex="0" role="button">
+                            <div class="dropzone-prompt"><strong>Drop a GIF here</strong> or click to choose</div>
+                        </div>
+                        <div id="gp-stage" class="gp-stage" hidden>
+                            <canvas id="gp-canvas" aria-label="GIF frame"></canvas>
+                        </div>
+                        <div id="gp-controls" class="gp-controls" hidden>
+                            <div class="btn-row">
+                                <button type="button" id="gp-prev" class="btn btn-ghost btn-sm" aria-label="Previous frame">⏮</button>
+                                <button type="button" id="gp-play" class="btn btn-primary btn-sm">❚❚ Pause</button>
+                                <button type="button" id="gp-next" class="btn btn-ghost btn-sm" aria-label="Next frame">⏭</button>
+                                <select id="gp-speed" class="input input-sm gp-speed" aria-label="Playback speed">
+                                    <option value="0.25">0.25×</option>
+                                    <option value="0.5">0.5×</option>
+                                    <option value="1" selected>1×</option>
+                                    <option value="2">2×</option>
+                                </select>
+                            </div>
+                            <div class="range-row gp-scrub">
+                                <label class="muted" for="gp-frame">Frame</label>
+                                <input type="range" id="gp-frame" min="0" max="0" value="0" />
+                                <span id="gp-frame-val" class="muted">1 / 1</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <aside class="ws-side-col">
+                    <div class="panel-card sticky-panel">
+                        <div class="form-stack">
+                            <h3 class="side-title">About this GIF</h3>
+                            <dl id="gp-info" class="gp-info"><dt>No GIF open</dt><dd></dd></dl>
+                            <hr class="divider" />
+                            <button type="button" id="gp-save-frame" class="btn btn-secondary btn-sm" disabled>Save This Frame (PNG)</button>
+                            <button type="button" id="gp-save-all" class="btn btn-ghost btn-sm" disabled>Save All Frames (.zip)</button>
+                            <button type="button" id="gp-edit-frame" class="btn btn-ghost btn-sm" disabled>Edit This Frame</button>
                         </div>
                     </div>
                 </aside>

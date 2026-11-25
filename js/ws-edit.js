@@ -41,14 +41,44 @@ function clamp(v, lo, hi) {
 
 // ---------- Adjustments (identical maths for preview and export) ----------
 
-function adjustPixels(imageData, { brightness, contrast, saturation }) {
-    if (!brightness && !contrast && !saturation) return;
+export const DEFAULT_ADJUST = { brightness: 0, contrast: 0, saturation: 0, warmth: 0, filter: 'none' };
+
+export function hasAdjustments(adj) {
+    return !!(adj.brightness || adj.contrast || adj.saturation || adj.warmth || (adj.filter && adj.filter !== 'none'));
+}
+
+const FILTERS = {
+    bw: (r, g, b) => { const y = 0.299 * r + 0.587 * g + 0.114 * b; return [y, y, y]; },
+    noir: (r, g, b) => { const y = (0.299 * r + 0.587 * g + 0.114 * b - 128) * 1.35 + 128; return [y, y, y]; },
+    sepia: (r, g, b) => [0.393 * r + 0.769 * g + 0.189 * b, 0.349 * r + 0.686 * g + 0.168 * b, 0.272 * r + 0.534 * g + 0.131 * b],
+    vintage: (r, g, b) => {
+        const sr = 0.393 * r + 0.769 * g + 0.189 * b, sg = 0.349 * r + 0.686 * g + 0.168 * b, sb = 0.272 * r + 0.534 * g + 0.131 * b;
+        return [(r * 0.4 + sr * 0.6) * 0.88 + 22, (g * 0.4 + sg * 0.6) * 0.88 + 16, (b * 0.4 + sb * 0.6) * 0.84 + 18];
+    },
+    fade: (r, g, b) => {
+        const y = 0.299 * r + 0.587 * g + 0.114 * b;
+        return [(y + (r - y) * 0.8) * 0.82 + 34, (y + (g - y) * 0.8) * 0.82 + 34, (y + (b - y) * 0.8) * 0.82 + 38];
+    },
+    vivid: (r, g, b) => {
+        const y = 0.299 * r + 0.587 * g + 0.114 * b;
+        return [((y + (r - y) * 1.4) - 128) * 1.08 + 128, ((y + (g - y) * 1.4) - 128) * 1.08 + 128, ((y + (b - y) * 1.4) - 128) * 1.08 + 128];
+    },
+    warm: (r, g, b) => [r * 1.06 + 10, g * 1.01 + 3, b * 0.88],
+    cool: (r, g, b) => [r * 0.9, g * 1.0 + 2, b * 1.06 + 12],
+    invert: (r, g, b) => [255 - r, 255 - g, 255 - b],
+};
+
+function adjustPixels(imageData, adj) {
+    if (!hasAdjustments(adj)) return;
+    const { brightness = 0, contrast = 0, saturation = 0, warmth = 0, filter = 'none' } = adj;
     const C = contrast * 2.55;
     const f = (259 * (C + 255)) / (255 * (259 - C));
     const off = brightness * 1.28;
     const lut = new Float32Array(256);
     for (let i = 0; i < 256; i++) lut[i] = (i - 128) * f + 128 + off;
     const sf = 1 + saturation / 100;
+    const wr = warmth * 0.3, wb = -warmth * 0.3;
+    const fx = FILTERS[filter] || null;
     const d = imageData.data;
     for (let i = 0; i < d.length; i += 4) {
         let r = lut[d[i]], g = lut[d[i + 1]], b = lut[d[i + 2]];
@@ -58,6 +88,11 @@ function adjustPixels(imageData, { brightness, contrast, saturation }) {
             g = y + (g - y) * sf;
             b = y + (b - y) * sf;
         }
+        if (warmth) {
+            r += wr;
+            b += wb;
+        }
+        if (fx) [r, g, b] = fx(r, g, b);
         d[i] = r; d[i + 1] = g; d[i + 2] = b; // Uint8ClampedArray clamps and rounds
     }
 }
@@ -248,7 +283,9 @@ export function initEditWorkspace({ root, toast }) {
     const input = $('ed-file-input');
     const toolBtns = Array.from(root.querySelectorAll('[data-tool]'));
     const fmtBtns = Array.from(root.querySelectorAll('[data-edformat]'));
-    const sliders = { brightness: $('ed-brightness'), contrast: $('ed-contrast'), saturation: $('ed-saturation') };
+    const sliders = { brightness: $('ed-brightness'), contrast: $('ed-contrast'), saturation: $('ed-saturation'), warmth: $('ed-warmth') };
+    const filterChips = Array.from(root.querySelectorAll('[data-filter]'));
+    const canvasButtons = ['ed-cut-btn', 'ed-border-btn', 'ed-square-btn'].map((id) => $(id));
     const straighten = $('ed-straighten');
     const geomButtons = ['ed-rot-left', 'ed-rot-right', 'ed-flip-h', 'ed-flip-v'].map((id) => $(id));
 
@@ -259,7 +296,13 @@ export function initEditWorkspace({ root, toast }) {
         b.title = 'This browser cannot save WebP images.';
     }
 
-    let img = null; // { source, width, height, name, type, preview, previewScale }
+    let img = null; // { name, type } of the opened file
+    // Pixel sources. [0] is the opened photo; cutting a strip or adding a border bakes the
+    // current geometry into a new source, and undo just points back at an earlier one.
+    let sources = []; // { source, width, height, preview, previewScale }
+    const src = () => sources[state.src];
+    let cutMode = false;
+    let cutBand = null; // { axis: 'h' | 'v', a, b } in T-space
     let state = null; // { tf: { rot, flipH, flipV, straighten }, crop, adjust, annots }
     let tool = 'select';
     let selectedId = null;
@@ -287,7 +330,7 @@ export function initEditWorkspace({ root, toast }) {
     // ---------- Geometry ----------
 
     function tfInfo(tf) {
-        const W = img.width, H = img.height;
+        const { width: W, height: H } = src();
         const odd = tf.rot % 180 !== 0;
         const Rw = odd ? H : W, Rh = odd ? W : H;
         const a = Math.abs(tf.straighten * Math.PI / 180);
@@ -492,14 +535,14 @@ export function initEditWorkspace({ root, toast }) {
         if (/png|webp|gif/.test(img.type)) {
             drawChecker(c, tl.x, tl.y, br.x - tl.x, br.y - tl.y);
         }
-        const m = mul(V, mul(M, scaleM(1 / img.previewScale)));
+        const m = mul(V, mul(M, scaleM(1 / src().previewScale)));
         c.setTransform(...m);
         c.imageSmoothingEnabled = true;
         c.imageSmoothingQuality = 'high';
-        c.drawImage(img.preview, 0, 0);
+        c.drawImage(src().preview, 0, 0);
         c.restore();
         const adj = state.adjust;
-        if (adj.brightness || adj.contrast || adj.saturation) {
+        if (hasAdjustments(adj)) {
             const x = Math.max(0, Math.floor(tl.x)), y = Math.max(0, Math.floor(tl.y));
             const w = Math.min(photoLayer.width, Math.ceil(br.x)) - x, h = Math.min(photoLayer.height, Math.ceil(br.y)) - y;
             if (w > 0 && h > 0) {
@@ -533,6 +576,7 @@ export function initEditWorkspace({ root, toast }) {
         paintAnnotations(ctx, viewMatrix(), view.region, state.annots, editingId);
 
         if (cropMode) drawCropOverlay();
+        else if (cutMode) drawCutOverlay();
         else drawSelection();
     }
 
@@ -647,6 +691,7 @@ export function initEditWorkspace({ root, toast }) {
     function setTool(t) {
         if (!img && t !== 'select') return;
         finishInlineEdit();
+        if (cutMode && t !== 'select') exitCut();
         if (t === 'crop') {
             enterCrop();
         } else if (cropMode) {
@@ -806,6 +851,11 @@ export function initEditWorkspace({ root, toast }) {
         canvas.setPointerCapture(e.pointerId);
         stage.focus({ preventScroll: true });
 
+        if (cutMode) {
+            drag = { kind: 'cut', p0: p };
+            return;
+        }
+
         if (cropMode) {
             const h = hitHandle(cropHandles(), sx, sy);
             const d = cropDraft;
@@ -896,6 +946,16 @@ export function initEditWorkspace({ root, toast }) {
             cropDraft = { ...d, x: clamp(d.x + p.x - drag.p0.x, 0, Tw - d.w), y: clamp(d.y + p.y - drag.p0.y, 0, Th - d.h) };
         } else if (drag.kind === 'crop-handle') {
             cropDraft = resizeCrop(drag.start, drag.key, clamp(p.x, 0, Tw), clamp(p.y, 0, Th));
+        } else if (drag.kind === 'cut') {
+            const r = view.region;
+            const horiz = cutAxis === 'h';
+            const lo = horiz ? r.y : r.x, hi = horiz ? r.y + r.h : r.x + r.w;
+            cutBand = {
+                axis: cutAxis,
+                a: clamp(horiz ? drag.p0.y : drag.p0.x, lo, hi),
+                b: clamp(horiz ? p.y : p.x, lo, hi),
+            };
+            updateCutBar();
         } else if (drag.kind === 'crop-new') {
             const ar = cropAspect();
             let x1 = clamp(drag.p0.x, 0, Tw), y1 = clamp(drag.p0.y, 0, Th);
@@ -976,7 +1036,9 @@ export function initEditWorkspace({ root, toast }) {
 
     function updateCursor(sx, sy, p) {
         let cur = 'default';
-        if (cropMode) {
+        if (cutMode) {
+            cur = cutAxis === 'h' ? 'row-resize' : 'col-resize';
+        } else if (cropMode) {
             const h = hitHandle(cropHandles(), sx, sy);
             const d = cropDraft;
             if (h) cur = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize' }[h.key];
@@ -1015,7 +1077,8 @@ export function initEditWorkspace({ root, toast }) {
         }
         if (typing || mod || e.altKey) return;
         if (e.key === 'Escape') {
-            if (cropMode) setTool('select');
+            if (cutMode) exitCut();
+            else if (cropMode) setTool('select');
             else { selectedId = null; renderProps(); draw(); }
             return;
         }
@@ -1183,7 +1246,220 @@ export function initEditWorkspace({ root, toast }) {
         }
         straighten.value = String(Math.round(state.tf.straighten * 10));
         $('ed-straighten-val').textContent = `${state.tf.straighten.toFixed(1)}°`;
+        const f = state.adjust.filter || 'none';
+        filterChips.forEach((c) => {
+            const on = c.dataset.filter === f;
+            c.classList.toggle('is-active', on);
+            c.setAttribute('aria-pressed', String(on));
+        });
     }
+
+    filterChips.forEach((chip) => chip.addEventListener('click', () => {
+        if (!img) return;
+        beginChange();
+        state.adjust.filter = chip.dataset.filter;
+        commitChange();
+        syncControls();
+        photoDirty = true;
+        draw();
+    }));
+
+    // ---------- Baked canvas operations: cut out a strip, add a border ----------
+
+    /**
+     * Render the current geometry (rotation, flip, straighten, crop) at full resolution, let
+     * `op` build a new image from it, and make that the new source. Adjustments and
+     * annotations stay live; annotations are moved with `op`'s coordinate map.
+     */
+    function bake(op) {
+        const r = cropRect();
+        const { M } = tfInfo(state.tf);
+        const w = Math.max(1, Math.round(r.w)), h = Math.max(1, Math.round(r.h));
+        if (w * h > MAX_OUTPUT_PIXELS) throw new Error('This image is too large for that operation.');
+        const base = createCanvas(w, h);
+        const bc = base.getContext('2d');
+        bc.setTransform(...mul(translate(-r.x, -r.y), M));
+        bc.imageSmoothingEnabled = true;
+        bc.imageSmoothingQuality = 'high';
+        bc.drawImage(src().source, 0, 0);
+        // Bake the current colour adjustments too, so new borders keep exactly the chosen colour.
+        const bakedAdjust = hasAdjustments(state.adjust);
+        if (bakedAdjust) {
+            bc.setTransform(1, 0, 0, 1, 0, 0);
+            const id = bc.getImageData(0, 0, w, h);
+            adjustPixels(id, state.adjust);
+            bc.putImageData(id, 0, 0);
+        }
+        const res = op(base);
+        if (res.canvas !== base) releaseCanvas(base);
+        const map = (x, y) => res.map(x - r.x, y - r.y);
+        beginChange();
+        sources.push(makeSource(res.canvas, res.canvas.width, res.canvas.height));
+        state.src = sources.length - 1;
+        state.tf = { rot: 0, flipH: false, flipV: false, straighten: 0 };
+        state.crop = null;
+        if (bakedAdjust) state.adjust = { ...DEFAULT_ADJUST };
+        state.annots = state.annots.map((a0) => {
+            const a = clone(a0);
+            if (a.type === 'text') {
+                const q = map(a0.x, a0.y);
+                a.x = q.x; a.y = q.y;
+            } else {
+                const p1 = map(a0.x1, a0.y1), p2 = map(a0.x2, a0.y2);
+                Object.assign(a, { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
+            }
+            return a;
+        });
+        commitChange();
+        syncControls();
+        photoDirty = true;
+        fitView();
+        draw();
+        updateOutDesc();
+    }
+
+    function addBorder(top, right, bottom, left, color) {
+        bake((base) => {
+            const out = createCanvas(base.width + left + right, base.height + top + bottom);
+            const c = out.getContext('2d');
+            c.fillStyle = color;
+            c.fillRect(0, 0, out.width, out.height);
+            c.drawImage(base, left, top);
+            return { canvas: out, map: (x, y) => ({ x: x + left, y: y + top }) };
+        });
+    }
+
+    $('ed-border-btn').addEventListener('click', () => {
+        if (!img) return;
+        const p = Math.max(1, Math.min(2000, parseInt($('ed-border').value, 10) || 0));
+        try {
+            finishInlineEdit();
+            addBorder(p, p, p, p, $('ed-border-color').value);
+        } catch (err) {
+            toast(err.message || String(err), 'error');
+        }
+    });
+    $('ed-square-btn').addEventListener('click', () => {
+        if (!img) return;
+        finishInlineEdit();
+        const r = cropRect();
+        const w = Math.round(r.w), h = Math.round(r.h);
+        if (w === h) {
+            toast('The image is already square.', 'info');
+            return;
+        }
+        const side = Math.max(w, h);
+        const left = Math.floor((side - w) / 2), top = Math.floor((side - h) / 2);
+        try {
+            addBorder(top, side - w - left, side - h - top, left, $('ed-border-color').value);
+        } catch (err) {
+            toast(err.message || String(err), 'error');
+        }
+    });
+
+    const cutAxisBtns = Array.from(root.querySelectorAll('[data-cutaxis]'));
+    let cutAxis = 'h';
+    cutAxisBtns.forEach((b) => b.addEventListener('click', () => {
+        cutAxis = b.dataset.cutaxis;
+        cutAxisBtns.forEach((x) => {
+            const on = x === b;
+            x.classList.toggle('is-active', on);
+            x.setAttribute('aria-pressed', String(on));
+        });
+        cutBand = null;
+        updateCutBar();
+        draw();
+    }));
+
+    function enterCut() {
+        if (!img) return;
+        setTool('select');
+        selectedId = null;
+        renderProps();
+        cutMode = true;
+        cutBand = null;
+        $('ed-cut-bar').hidden = false;
+        updateCutBar();
+        draw();
+    }
+
+    function exitCut() {
+        cutMode = false;
+        cutBand = null;
+        $('ed-cut-bar').hidden = true;
+        draw();
+    }
+
+    function updateCutBar() {
+        const ok = cutBand && Math.abs(cutBand.b - cutBand.a) >= 1;
+        $('ed-cut-apply').disabled = !ok;
+        $('ed-cut-size').textContent = ok ? `${Math.round(Math.abs(cutBand.b - cutBand.a))} px ${cutBand.axis === 'h' ? 'tall' : 'wide'}` : '';
+    }
+
+    function applyCut() {
+        if (!cutBand) return;
+        const r = cropRect();
+        const horiz = cutBand.axis === 'h';
+        // Band edges relative to the visible (cropped) image.
+        const a = Math.round(Math.min(cutBand.a, cutBand.b) - (horiz ? r.y : r.x));
+        const b = Math.round(Math.max(cutBand.a, cutBand.b) - (horiz ? r.y : r.x));
+        const removed = b - a;
+        const full = horiz ? Math.round(r.h) : Math.round(r.w);
+        if (removed < 1 || removed >= full) {
+            toast('Mark a strip that leaves some of the image.', 'warn');
+            return;
+        }
+        try {
+            bake((base) => {
+                const W = base.width, H = base.height;
+                const out = horiz ? createCanvas(W, H - removed) : createCanvas(W - removed, H);
+                const c = out.getContext('2d');
+                if (horiz) {
+                    if (a > 0) c.drawImage(base, 0, 0, W, a, 0, 0, W, a);
+                    if (H - b > 0) c.drawImage(base, 0, b, W, H - b, 0, a, W, H - b);
+                } else {
+                    if (a > 0) c.drawImage(base, 0, 0, a, H, 0, 0, a, H);
+                    if (W - b > 0) c.drawImage(base, b, 0, W - b, H, a, 0, W - b, H);
+                }
+                const shift = (v) => (v <= a ? v : v >= b ? v - removed : a);
+                return { canvas: out, map: (x, y) => (horiz ? { x, y: shift(y) } : { x: shift(x), y }) };
+            });
+            toast(`Removed a ${removed} px strip.`, 'ok');
+        } catch (err) {
+            toast(err.message || String(err), 'error');
+        }
+        exitCut();
+    }
+
+    function drawCutOverlay() {
+        if (!cutBand) return;
+        const r = view.region;
+        const horiz = cutBand.axis === 'h';
+        const lo = Math.min(cutBand.a, cutBand.b), hi = Math.max(cutBand.a, cutBand.b);
+        const p1 = horiz ? toScreen(r.x, lo) : toScreen(lo, r.y);
+        const p2 = horiz ? toScreen(r.x + r.w, hi) : toScreen(hi, r.y + r.h);
+        ctx.save();
+        ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+        ctx.fillStyle = 'rgba(220, 38, 38, 0.35)';
+        ctx.fillRect(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
+        ctx.strokeStyle = '#dc2626';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        if (horiz) {
+            ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p1.y);
+            ctx.moveTo(p1.x, p2.y); ctx.lineTo(p2.x, p2.y);
+        } else {
+            ctx.moveTo(p1.x, p1.y); ctx.lineTo(p1.x, p2.y);
+            ctx.moveTo(p2.x, p1.y); ctx.lineTo(p2.x, p2.y);
+        }
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    $('ed-cut-btn').addEventListener('click', enterCut);
+    $('ed-cut-cancel').addEventListener('click', exitCut);
+    $('ed-cut-apply').addEventListener('click', applyCut);
 
     for (const [k, el] of Object.entries(sliders)) {
         el.addEventListener('input', () => {
@@ -1198,7 +1474,7 @@ export function initEditWorkspace({ root, toast }) {
     }
     $('ed-reset-adjust').addEventListener('click', () => {
         beginChange();
-        state.adjust = { brightness: 0, contrast: 0, saturation: 0 };
+        state.adjust = { ...DEFAULT_ADJUST };
         commitChange();
         syncControls();
         photoDirty = true;
@@ -1300,11 +1576,11 @@ export function initEditWorkspace({ root, toast }) {
         }
         const view2out = mul(scaleM(w / r.w, h / r.h), translate(-r.x, -r.y));
         // Downscaling a lot in one draw aliases; pre-shrink the source when the output is much smaller.
-        let source = img.source, srcScale = 1, temp = null;
+        let source = src().source, srcScale = 1, temp = null;
         const k = Math.sqrt((w / r.w) * (h / r.h));
         if (k < 0.5) {
             srcScale = Math.min(1, k * 2);
-            temp = drawScaled(img.source, img.width * srcScale, img.height * srcScale);
+            temp = drawScaled(src().source, src().width * srcScale, src().height * srcScale);
             source = temp;
         }
         c.save();
@@ -1315,7 +1591,7 @@ export function initEditWorkspace({ root, toast }) {
         c.restore();
         if (temp) releaseCanvas(temp);
         const adj = state.adjust;
-        if (adj.brightness || adj.contrast || adj.saturation) {
+        if (hasAdjustments(adj)) {
             const id = c.getImageData(0, 0, w, h);
             adjustPixels(id, adj);
             c.putImageData(id, 0, 0);
@@ -1383,8 +1659,9 @@ export function initEditWorkspace({ root, toast }) {
         if (!img) return;
         finishInlineEdit();
         if (cropMode) exitCrop(false);
+        if (cutMode) exitCut();
         beginChange();
-        state = { tf: { rot: 0, flipH: false, flipV: false, straighten: 0 }, crop: null, adjust: { brightness: 0, contrast: 0, saturation: 0 }, annots: [] };
+        state = { tf: { rot: 0, flipH: false, flipV: false, straighten: 0 }, crop: null, adjust: { ...DEFAULT_ADJUST }, annots: [], src: 0 };
         commitChange();
         restore(state);
         setTool('select');
@@ -1399,15 +1676,16 @@ export function initEditWorkspace({ root, toast }) {
         try {
             const dec = await decodeImage(file);
             finishInlineEdit();
-            if (img) {
-                releaseSource(img.source);
-                if (img.preview !== img.source) releaseCanvas(img.preview);
+            for (const sItem of sources) {
+                if (sItem.preview !== sItem.source) releaseCanvas(sItem.preview);
+                releaseSource(sItem.source);
             }
-            const longest = Math.max(dec.width, dec.height);
-            const previewScale = longest > PREVIEW_MAX ? PREVIEW_MAX / longest : 1;
-            const preview = previewScale < 1 ? drawScaled(dec.source, dec.width * previewScale, dec.height * previewScale) : dec.source;
-            img = { source: dec.source, width: dec.width, height: dec.height, name: file.name || 'image.png', type: file.type || '', preview, previewScale };
-            state = { tf: { rot: 0, flipH: false, flipV: false, straighten: 0 }, crop: null, adjust: { brightness: 0, contrast: 0, saturation: 0 }, annots: [] };
+            sources = [makeSource(dec.source, dec.width, dec.height)];
+            img = { name: file.name || 'image.png', type: file.type || '' };
+            cutMode = false;
+            cutBand = null;
+            $('ed-cut-bar').hidden = true;
+            state = { tf: { rot: 0, flipH: false, flipV: false, straighten: 0 }, crop: null, adjust: { ...DEFAULT_ADJUST }, annots: [], src: 0 };
             undoStack = [];
             redoStack = [];
             pending = null;
@@ -1419,7 +1697,7 @@ export function initEditWorkspace({ root, toast }) {
             $('ed-empty').hidden = true;
             canvas.hidden = false;
             $('ed-file-label').textContent = `${img.name} · ${dec.width} × ${dec.height} px`;
-            [...geomButtons, straighten, ...Object.values(sliders), $('ed-reset-adjust'), $('ed-download'), $('ed-copy'), $('ed-reset-all')].forEach((el) => { el.disabled = false; });
+            [...geomButtons, straighten, ...Object.values(sliders), $('ed-reset-adjust'), $('ed-download'), $('ed-copy'), $('ed-reset-all'), ...filterChips, ...canvasButtons].forEach((el) => { el.disabled = false; });
             setOutFormat(file.type === 'image/png' ? 'png' : file.type === 'image/webp' && webpOk ? 'webp' : 'jpg');
             syncControls();
             renderProps();
@@ -1437,6 +1715,13 @@ export function initEditWorkspace({ root, toast }) {
 
     function handleFiles(files) {
         if (files.length) loadFile(files[0]);
+    }
+
+    function makeSource(source, width, height) {
+        const longest = Math.max(width, height);
+        const previewScale = longest > PREVIEW_MAX ? PREVIEW_MAX / longest : 1;
+        const preview = previewScale < 1 ? drawScaled(source, width * previewScale, height * previewScale) : source;
+        return { source, width, height, preview, previewScale };
     }
 
     wireDropzone($('ed-empty'), input, handleFiles);

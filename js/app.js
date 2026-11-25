@@ -1,6 +1,9 @@
 import { initResizeWorkspace } from './ws-resize.js';
 import { initPhotoWorkspace } from './ws-photo.js';
 import { initEditWorkspace } from './ws-edit.js';
+import { initPdfWorkspace } from './ws-pdf.js';
+import { initMergeWorkspace } from './ws-merge.js';
+import { initGifWorkspace } from './ws-gif.js';
 
 const THEME_KEY = 'lk_image_theme';
 
@@ -58,9 +61,13 @@ function initApp() {
         resize: document.getElementById('ws-resize'),
         photo: document.getElementById('ws-photo'),
         edit: document.getElementById('ws-edit'),
+        pdf: document.getElementById('ws-pdf'),
+        merge: document.getElementById('ws-merge'),
+        gif: document.getElementById('ws-gif'),
     };
     let activeTab = 'resize';
     let editWs = null;
+    const workspaces = {};
 
     function switchToTab(tab) {
         activeTab = tab;
@@ -69,10 +76,13 @@ function initApp() {
             b.classList.toggle('is-active', on);
             b.setAttribute('aria-selected', String(on));
             b.tabIndex = on ? 0 : -1;
+            if (on) b.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         });
         for (const [key, el] of Object.entries(panels)) el.hidden = key !== tab;
-        if (tab === 'edit') editWs?.onShow();
-        if (tab === 'photo') photoWs?.onShow();
+        for (const [key, ws] of Object.entries(workspaces)) {
+            if (key === tab) ws.onShow?.();
+            else ws.onHide?.();
+        }
         if (location.hash !== `#${tab}`) history.replaceState(null, '', `#${tab}`);
     }
 
@@ -81,9 +91,12 @@ function initApp() {
         await editWs.loadFile(file);
     };
 
-    const resizeWs = initResizeWorkspace({ root: panels.resize, toast, sendToEditor });
-    const photoWs = initPhotoWorkspace({ root: panels.photo, toast });
-    editWs = initEditWorkspace({ root: panels.edit, toast });
+    workspaces.resize = initResizeWorkspace({ root: panels.resize, toast, sendToEditor });
+    workspaces.photo = initPhotoWorkspace({ root: panels.photo, toast });
+    workspaces.edit = editWs = initEditWorkspace({ root: panels.edit, toast });
+    workspaces.pdf = initPdfWorkspace({ root: panels.pdf, toast });
+    workspaces.merge = initMergeWorkspace({ root: panels.merge, toast });
+    workspaces.gif = initGifWorkspace({ root: panels.gif, toast, sendToEditor });
 
     navBtns.forEach((btn, i) => {
         btn.addEventListener('click', () => switchToTab(btn.dataset.tab));
@@ -106,9 +119,7 @@ function initApp() {
         const files = Array.from(e.clipboardData?.files || []).filter((f) => /^image\//.test(f.type));
         if (files.length === 0) return;
         e.preventDefault();
-        if (activeTab === 'resize') resizeWs.handleFiles(files);
-        else if (activeTab === 'photo') photoWs.handleFiles(files);
-        else editWs.handleFiles(files);
+        workspaces[activeTab]?.handleFiles(files);
     });
 
     // Stop the browser from opening a file dropped outside a drop zone (and losing the user's work).
