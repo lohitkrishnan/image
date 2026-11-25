@@ -83,6 +83,102 @@ export function createImageList({ container, toast, onChange, label = 'image' })
         emit();
     }
 
+    // ---------- Reordering helpers ----------
+
+    function isBefore(li, clientX) {
+        const r = li.getBoundingClientRect();
+        return clientX < r.left + r.width / 2;
+    }
+
+    function clearMarkers() {
+        container.querySelectorAll('.is-drop-before, .is-drop-after').forEach((x) => x.classList.remove('is-drop-before', 'is-drop-after'));
+    }
+
+    function markTarget(li, clientX) {
+        const before = isBefore(li, clientX);
+        if (li.classList.contains(before ? 'is-drop-before' : 'is-drop-after')) return;
+        clearMarkers();
+        li.classList.add(before ? 'is-drop-before' : 'is-drop-after');
+    }
+
+    /** Move item `id` to just before or after item `targetId`. */
+    function moveTo(id, targetId, before) {
+        if (id === targetId) return;
+        const from = items.findIndex((x) => x.id === id);
+        if (from < 0) return;
+        const [moved] = items.splice(from, 1);
+        let to = items.findIndex((x) => x.id === targetId);
+        if (to < 0) {
+            items.splice(from, 0, moved);
+            return;
+        }
+        if (!before) to += 1;
+        items.splice(to, 0, moved);
+        emit();
+    }
+
+    // Touch screens have no drag and drop: press and hold a thumbnail, then slide it.
+    function wireTouchDrag(li, it) {
+        let timer = 0, active = false, startX = 0, startY = 0, target = null, before = false, scrollTimer = 0;
+        const cancel = () => {
+            clearTimeout(timer);
+            clearInterval(scrollTimer);
+            timer = 0;
+            scrollTimer = 0;
+            if (active) {
+                li.classList.remove('is-dragging');
+                clearMarkers();
+            }
+            active = false;
+            target = null;
+        };
+        li.addEventListener('touchstart', (e) => {
+            if (e.touches.length !== 1 || e.target.closest('button')) return;
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+            timer = setTimeout(() => {
+                active = true;
+                li.classList.add('is-dragging');
+                navigator.vibrate?.(15);
+            }, 350);
+        }, { passive: true });
+        li.addEventListener('touchmove', (e) => {
+            const t = e.touches[0];
+            if (!active) {
+                // Moving before the hold completes means the user is scrolling.
+                if (Math.hypot(t.clientX - startX, t.clientY - startY) > 8) cancel();
+                return;
+            }
+            e.preventDefault();
+            const el = document.elementFromPoint(t.clientX, t.clientY)?.closest('.il-item');
+            if (el && el !== li && container.contains(el)) {
+                target = el;
+                before = isBefore(el, t.clientX);
+                markTarget(el, t.clientX);
+            } else {
+                target = null;
+                clearMarkers();
+            }
+            // Scroll the page when the finger nears the top or bottom edge.
+            clearInterval(scrollTimer);
+            const edge = 70;
+            const dy = t.clientY < edge ? -12 : t.clientY > window.innerHeight - edge ? 12 : 0;
+            if (dy) scrollTimer = setInterval(() => window.scrollBy(0, dy), 16);
+        }, { passive: false });
+        li.addEventListener('touchend', () => {
+            if (active && target) {
+                const targetId = Number(target.dataset.id);
+                const b = before;
+                cancel();
+                moveTo(it.id, targetId, b);
+                return;
+            }
+            cancel();
+        });
+        li.addEventListener('touchcancel', cancel);
+        li.addEventListener('contextmenu', (e) => { if (active || timer) e.preventDefault(); });
+    }
+
     function render() {
         container.innerHTML = '';
         container.classList.toggle('is-empty', items.length === 0);
@@ -112,26 +208,24 @@ export function createImageList({ container, toast, onChange, label = 'image' })
             li.addEventListener('dragend', () => {
                 dragId = null;
                 li.classList.remove('is-dragging');
-                container.querySelectorAll('.is-drop-target').forEach((x) => x.classList.remove('is-drop-target'));
+                clearMarkers();
             });
             li.addEventListener('dragover', (e) => {
                 if (dragId == null) return; // a file being dropped, not a reorder
                 e.preventDefault();
                 e.stopPropagation();
-                li.classList.add('is-drop-target');
+                markTarget(li, e.clientX);
             });
-            li.addEventListener('dragleave', () => li.classList.remove('is-drop-target'));
+            li.addEventListener('dragleave', () => li.classList.remove('is-drop-before', 'is-drop-after'));
             li.addEventListener('drop', (e) => {
                 if (dragId == null) return;
                 e.preventDefault();
                 e.stopPropagation();
-                const from = items.findIndex((x) => x.id === dragId);
-                const to = items.findIndex((x) => x.id === it.id);
-                if (from < 0 || to < 0 || from === to) return;
-                const [moved] = items.splice(from, 1);
-                items.splice(to, 0, moved);
-                emit();
+                const before = isBefore(li, e.clientX);
+                clearMarkers();
+                moveTo(dragId, it.id, before);
             });
+            wireTouchDrag(li, it);
             container.appendChild(li);
         });
     }

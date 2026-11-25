@@ -48,6 +48,26 @@ All third-party files are served from this site; the page makes no requests to o
 except the privacy-friendly GoatCounter page-view counter shared with lohitkrishnan.com, which
 never receives images.
 
+## Phones, offline use and installing
+
+- On touch screens, finished files open a small sheet with **Share** (WhatsApp, Gmail, Files…)
+  and **Save to device**; the main button of each tool stays pinned to the bottom of narrow
+  screens; **Take photo** buttons open the camera. Desktop mouse users see none of this.
+- iPhones and iPads can't create canvases above about 16 MP, so larger photos are reduced to
+  fit there, with a message.
+- `sw.js` caches the app (about 2.4 MB) on the first visit, so after that it opens and every
+  tool works with no connection. `manifest.webmanifest` lets browsers offer **Install** or
+  **Add to Home Screen**. Only the app's own files are cached; photos are never stored.
+
+**Before every commit that changes a file the app loads**, regenerate the cache list and version:
+
+```sh
+python3 tools/update-sw.py
+```
+
+Otherwise visitors keep the previous version. When a new version is published, open copies of
+the page offer a Reload button rather than refreshing under someone's work.
+
 ## Running locally
 
 ```sh

@@ -2,12 +2,11 @@
 
 import {
     FORMATS, formatBytes, baseName, escapeHtml, downloadBlob, createCanvas, releaseCanvas,
-    decodeImage, releaseSource, drawScaled, encodeToTarget, flatten, supportsWebpEncoding, wireDropzone,
-} from './image-io.js';
+    decodeImage, releaseSource, drawScaled, encodeToTarget, flatten, supportsWebpEncoding, wireDropzone, MAX_CANVAS_PIXELS } from './image-io.js';
 import { createZip } from './zip.js';
 import { makeLandscapeSample } from './samples.js';
 
-const MAX_OUTPUT_PIXELS = 100e6; // beyond this most browsers can't allocate the canvas
+const MAX_OUTPUT_PIXELS = MAX_CANVAS_PIXELS; // larger canvases fail (on iPhones, above ~16 MP)
 
 const PRESETS = [
     { id: 'custom', label: 'Custom settings' },
@@ -126,9 +125,15 @@ export function initResizeWorkspace({ root, toast, sendToEditor }) {
         }
     }
 
+    // Number inputs aren't in a form, so their min/max are only hints; enforce them here.
     function num(id) {
-        const v = parseFloat($(id).value);
-        return Number.isFinite(v) && v > 0 ? v : null;
+        const el = $(id);
+        let v = parseFloat(el.value);
+        if (!Number.isFinite(v) || v <= 0) return null;
+        const min = parseFloat(el.min), max = parseFloat(el.max);
+        if (Number.isFinite(min)) v = Math.max(min, v);
+        if (Number.isFinite(max)) v = Math.min(max, v);
+        return v;
     }
 
     function printPixels() {
@@ -270,11 +275,25 @@ export function initResizeWorkspace({ root, toast, sendToEditor }) {
         if (changed) render();
     }
 
+    /** Output format for "Same": the input's format, or PNG for formats we can't write that may be transparent. */
     function sourceFormatKey(item) {
         const t = (item.file.type || '').toLowerCase();
-        if (t === 'image/png') return 'png';
-        if (t === 'image/webp' && webpOk) return 'webp';
-        return 'jpg';
+        const ext = (item.name.split('.').pop() || '').toLowerCase();
+        if (t === 'image/png' || ext === 'png' || ext === 'apng') return 'png';
+        if (t === 'image/webp' || ext === 'webp') return webpOk ? 'webp' : 'png';
+        if (t === 'image/jpeg' || ext === 'jpg' || ext === 'jpeg' || ext === 'jfif') return 'jpg';
+        if (/image\/(gif|avif|svg|x-icon|vnd\.microsoft\.icon|tiff)/.test(t) || /^(gif|avif|svg|ico|tiff?)$/.test(ext)) return 'png';
+        return 'jpg'; // HEIC, BMP and others: photos without transparency
+    }
+
+    async function isAnimatedGif(file) {
+        if (!(file.type === 'image/gif' || /\.gif$/i.test(file.name || ''))) return false;
+        try {
+            const { GifReader } = await import('../vendor/omggif/omggif.esm.js');
+            return new GifReader(new Uint8Array(await file.arrayBuffer())).numFrames() > 1;
+        } catch {
+            return false;
+        }
     }
 
     function fmtLabel(item) {
@@ -461,6 +480,7 @@ export function initResizeWorkspace({ root, toast, sendToEditor }) {
                 });
                 let note = r.note;
                 if (r.scaled) note = `Made smaller (${r.width} × ${r.height} px) to fit the file-size limit. ${note}`.trim();
+                if (await isAnimatedGif(it.file)) note = `Animated GIF: only the first frame is kept (use the GIF tab to play it or save frames). ${note}`.trim();
                 if (s.mode === 'longest' && s.noUpscale && Math.max(it.width, it.height) < s.longest && !r.scaled) {
                     note = `Already smaller than ${s.longest} px, so kept at its size. ${note}`.trim();
                 }

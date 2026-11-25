@@ -1,9 +1,10 @@
 // Workspace 5: merge (stitch) images side by side, stacked, or in a grid.
 
-import { FORMATS, formatBytes, downloadBlob, createCanvas, releaseCanvas, decodeImage, releaseSource, drawScaled, encodeCanvas, supportsWebpEncoding, wireDropzone } from './image-io.js';
+import { FORMATS, formatBytes, downloadBlob, createCanvas, releaseCanvas, decodeImage, releaseSource, drawScaled, encodeCanvas, supportsWebpEncoding, wireDropzone, MAX_CANVAS_PIXELS } from './image-io.js';
 import { createImageList } from './image-list.js';
+import { makeSampleSet } from './samples.js';
 
-const MAX_PIXELS = 100e6;
+const MAX_PIXELS = MAX_CANVAS_PIXELS; // larger canvases fail (on iPhones, above ~16 MP)
 
 function median(arr) {
     const s = [...arr].sort((a, b) => a - b);
@@ -20,6 +21,12 @@ export function layoutMerge(sizes, o) {
     const n = sizes.length;
     const { gap, pad } = o;
     const build = (s) => {
+        const res = buildInner(s);
+        res.gap = gap;
+        res.pad = pad;
+        return res;
+    };
+    const buildInner = (s) => {
         const rects = [];
         if (o.dir === 'grid') {
             const cols = Math.max(1, Math.min(o.cols, n));
@@ -60,6 +67,12 @@ export function layoutMerge(sizes, o) {
     if (!o.maxSide || Math.max(unit.W, unit.H) <= o.maxSide) return round(unit);
     // Fixed parts (gaps and border) don't scale; solve for the image scale along the longer side.
     const zero = build(0);
+    const fixedLong = Math.max(zero.W, zero.H);
+    if (fixedLong > o.maxSide * 0.5) {
+        // Gaps and border alone would use most of the size limit: shrink them too.
+        const f = (o.maxSide * 0.5) / fixedLong;
+        return layoutMerge(sizes, { ...o, gap: o.gap * f, pad: o.pad * f });
+    }
     const longW = unit.W >= unit.H;
     const fixed = longW ? zero.W : zero.H;
     const content = (longW ? unit.W : unit.H) - fixed;
@@ -68,7 +81,7 @@ export function layoutMerge(sizes, o) {
 }
 
 function round(l) {
-    return { W: Math.max(1, Math.round(l.W)), H: Math.max(1, Math.round(l.H)), rects: l.rects };
+    return { W: Math.max(1, Math.round(l.W)), H: Math.max(1, Math.round(l.H)), rects: l.rects, gap: l.gap, pad: l.pad };
 }
 
 export function initMergeWorkspace({ root, toast }) {
@@ -152,6 +165,9 @@ export function initMergeWorkspace({ root, toast }) {
         }
         const lay = layoutMerge(items.map((it) => ({ w: it.width, h: it.height })), opt);
         let desc = `Result: ${lay.W} × ${lay.H} px ${FORMATS[opt.format].label}.`;
+        if (lay.gap !== undefined && (Math.round(lay.gap) !== opt.gap || Math.round(lay.pad) !== opt.pad)) {
+            desc += ` Gap and border shrink to ${Math.round(lay.gap)} and ${Math.round(lay.pad)} px to fit the size limit.`;
+        }
         if (opt.bg === 'transparent' && !FORMATS[opt.format].alpha) desc += ' JPG has no transparency, so the background will be white.';
         if (lay.W * lay.H > MAX_PIXELS) desc += ' That is too large for the browser; lower the longest side.';
         $('mg-desc').textContent = items.length < 2 ? 'Add at least one more image.' : desc;
@@ -232,6 +248,15 @@ export function initMergeWorkspace({ root, toast }) {
     }
 
     $('mg-run-btn').addEventListener('click', run);
+    $('mg-sample-btn').addEventListener('click', async () => {
+        const btn = $('mg-sample-btn');
+        btn.disabled = true;
+        try {
+            await list.add(await makeSampleSet());
+        } finally {
+            btn.disabled = false;
+        }
+    });
     $('mg-clear-btn').addEventListener('click', () => list.clear());
     $('mg-reverse-btn').addEventListener('click', () => list.reverse());
     wireDropzone($('mg-dropzone'), $('mg-file-input'), (files) => list.add(files));

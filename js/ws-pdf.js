@@ -2,6 +2,7 @@
 
 import { formatBytes, downloadBlob, createCanvas, releaseCanvas, decodeImage, releaseSource, drawScaled, encodeCanvas, wireDropzone, baseName } from './image-io.js';
 import { createImageList } from './image-list.js';
+import { makeSampleSet } from './samples.js';
 import { createZip } from './zip.js';
 
 const PAGES = {
@@ -263,6 +264,15 @@ export function initPdfWorkspace({ root, toast }) {
     }
 
     $('pdf-run-btn').addEventListener('click', run);
+    $('pdf-sample-btn').addEventListener('click', async () => {
+        const btn = $('pdf-sample-btn');
+        btn.disabled = true;
+        try {
+            await list.add(await makeSampleSet());
+        } finally {
+            btn.disabled = false;
+        }
+    });
     $('pdf-clear-btn').addEventListener('click', () => { list.clear(); $('pdf-result').textContent = ''; });
     $('pdf-sort-btn').addEventListener('click', () => list.sortByName());
     wireDropzone($('pdf-dropzone'), $('pdf-file-input'), (files) => list.add(files));

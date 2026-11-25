@@ -298,7 +298,7 @@ export function initPhotoWorkspace({ root, toast }) {
     // ---------- Output ----------
 
     /** Render the framed photo at pxW × pxH, filling uncovered areas with white. */
-    function renderOutput(pxW, pxH) {
+    function renderOutput(pxW, pxH, { fill = '#ffffff', readback = false } = {}) {
         const s = currentSpec();
         const ppmX = pxW / s.widthMm, ppmY = pxH / s.heightMm;
         // Pre-shrink very large photos so the final draw isn't a huge single-step reduction.
@@ -310,9 +310,11 @@ export function initPhotoWorkspace({ root, toast }) {
             source = temp;
         }
         const out = createCanvas(pxW, pxH);
-        const c = out.getContext('2d');
-        c.fillStyle = '#ffffff';
-        c.fillRect(0, 0, pxW, pxH);
+        const c = out.getContext('2d', readback ? { willReadFrequently: true } : undefined);
+        if (fill) {
+            c.fillStyle = fill;
+            c.fillRect(0, 0, pxW, pxH);
+        }
         drawPhoto(c, ppmX, ppmY, 0, 0, source, srcScale);
         if (temp) releaseCanvas(temp);
         return out;
@@ -329,6 +331,10 @@ export function initPhotoWorkspace({ root, toast }) {
         btn.disabled = true;
         try {
             const s = currentSpec();
+            if (s.digital?.minKB && s.digital?.maxKB && s.digital.minKB >= s.digital.maxKB) {
+                toast('The minimum file size must be smaller than the maximum.', 'warn');
+                return;
+            }
             let w, h, maxBytes = null, minBytes = null;
             if (s.digital) {
                 ({ width: w, height: h } = s.digital);
@@ -409,7 +415,8 @@ export function initPhotoWorkspace({ root, toast }) {
         }
         const s = currentSpec();
         const w = 70, h = Math.round(70 * s.heightMm / s.widthMm);
-        const small = renderOutput(w, h);
+        // Leave uncovered areas transparent so only real photo pixels are judged.
+        const small = renderOutput(w, h, { fill: null, readback: true });
         const data = small.getContext('2d').getImageData(0, 0, w, h).data;
         releaseCanvas(small);
         // Sample the top corners, where there should only be background.
@@ -420,9 +427,15 @@ export function initPhotoWorkspace({ root, toast }) {
             for (let y = 0; y < regionH; y++) {
                 for (let x = x0; x < x0 + regionW; x++) {
                     const i = (y * w + x) * 4;
-                    samples.push([data[i], data[i + 1], data[i + 2]]);
+                    if (data[i + 3] > 200) samples.push([data[i], data[i + 1], data[i + 2]]);
                 }
             }
+        }
+        const covered = frameCovered();
+        if (samples.length < 6) {
+            bgCheck.className = 'bg-check is-warn';
+            bgCheck.textContent = 'The top corners of the frame have no photo, so the background can\'t be checked. Zoom in or move the photo so it fills the frame.';
+            return;
         }
         let sumL = 0, sumS = 0;
         const ls = [];
@@ -446,9 +459,9 @@ export function initPhotoWorkspace({ root, toast }) {
             bgCheck.className = 'bg-check is-ok';
             bgCheck.textContent = 'Background near the top looks plain and light.';
         }
-        if (!frameCovered()) {
+        if (!covered) {
             bgCheck.className = 'bg-check is-warn';
-            bgCheck.textContent += ' Part of the frame has no photo; it will be filled with white.';
+            bgCheck.textContent = `${issues.length ? bgCheck.textContent : 'The visible background looks plain and light.'} Part of the frame has no photo and will be filled with white.`;
         }
     }
 

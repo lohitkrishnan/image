@@ -30,17 +30,23 @@ function toFile(canvas, name, quality = 0.92) {
     });
 }
 
-/** A detailed 3000×2000 landscape: big enough for resizing and compression to be meaningful. */
-export async function makeLandscapeSample() {
-    const w = 3000, h = 2000;
+const PALETTES = {
+    day: { sky: ['#3d6fb6', '#9cc3e6', '#f6d7a7'], mountains: ['#6d7fa3', '#4d6b6e', '#355f3e'], lake: ['#7fa9cf', '#2d4f73'] },
+    sunset: { sky: ['#2c2a5a', '#d9677a', '#ffc47a'], mountains: ['#5c4a73', '#3f3653', '#2a2a3a'], lake: ['#d98a7a', '#3b2f4f'] },
+    dawn: { sky: ['#9fc5d9', '#e8d6e6', '#fff1d6'], mountains: ['#9aa7b8', '#7d8f8f', '#56735c'], lake: ['#c3d8e6', '#5a7d96'] },
+};
+
+/** A detailed landscape (3000×2000 by default): big enough for resizing and compression to be meaningful. */
+export async function makeLandscapeSample({ w = 3000, h = 2000, seed = 7, palette = 'day', name = 'sample-landscape.jpg' } = {}) {
+    const pal = PALETTES[palette] || PALETTES.day;
     const c = createCanvas(w, h);
     const ctx = c.getContext('2d');
-    const rand = rng(7);
+    const rand = rng(seed);
 
     const sky = ctx.createLinearGradient(0, 0, 0, h * 0.62);
-    sky.addColorStop(0, '#3d6fb6');
-    sky.addColorStop(0.6, '#9cc3e6');
-    sky.addColorStop(1, '#f6d7a7');
+    sky.addColorStop(0, pal.sky[0]);
+    sky.addColorStop(0.6, pal.sky[1]);
+    sky.addColorStop(1, pal.sky[2]);
     ctx.fillStyle = sky;
     ctx.fillRect(0, 0, w, h);
 
@@ -65,9 +71,9 @@ export async function makeLandscapeSample() {
 
     // Mountain ranges
     const ranges = [
-        { base: 0.55, amp: 0.2, color: '#6d7fa3' },
-        { base: 0.62, amp: 0.16, color: '#4d6b6e' },
-        { base: 0.7, amp: 0.1, color: '#355f3e' },
+        { base: 0.55, amp: 0.2, color: pal.mountains[0] },
+        { base: 0.62, amp: 0.16, color: pal.mountains[1] },
+        { base: 0.7, amp: 0.1, color: pal.mountains[2] },
     ];
     for (const r of ranges) {
         ctx.fillStyle = r.color;
@@ -86,8 +92,8 @@ export async function makeLandscapeSample() {
 
     // Lake
     const lake = ctx.createLinearGradient(0, h * 0.74, 0, h);
-    lake.addColorStop(0, '#7fa9cf');
-    lake.addColorStop(1, '#2d4f73');
+    lake.addColorStop(0, pal.lake[0]);
+    lake.addColorStop(1, pal.lake[1]);
     ctx.fillStyle = lake;
     ctx.fillRect(0, h * 0.76, w, h * 0.24);
     for (let i = 0; i < 400; i++) {
@@ -107,8 +113,17 @@ export async function makeLandscapeSample() {
         ctx.fill();
     }
 
-    addGrain(ctx, w, h, 14, 11);
-    return toFile(c, 'sample-landscape.jpg');
+    addGrain(ctx, w, h, 14, seed + 4);
+    return toFile(c, name);
+}
+
+/** Three smaller landscapes in different light, for the multi-image tools. */
+export async function makeSampleSet() {
+    return [
+        await makeLandscapeSample({ w: 1600, h: 1067, seed: 3, palette: 'dawn', name: 'sample-1-dawn.jpg' }),
+        await makeLandscapeSample({ w: 1600, h: 1067, seed: 7, palette: 'day', name: 'sample-2-day.jpg' }),
+        await makeLandscapeSample({ w: 1200, h: 1500, seed: 11, palette: 'sunset', name: 'sample-3-sunset.jpg' }),
+    ];
 }
 
 /**

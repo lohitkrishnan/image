@@ -3,8 +3,9 @@
 
 import { GIFEncoder, quantize, applyPalette } from '../vendor/gifenc/gifenc.esm.js';
 import { GifReader } from '../vendor/omggif/omggif.esm.js';
-import { formatBytes, baseName, downloadBlob, createCanvas, releaseCanvas, decodeImage, releaseSource, drawScaled, encodeCanvas, wireDropzone, escapeHtml } from './image-io.js';
+import { formatBytes, baseName, downloadBlob, createCanvas, releaseCanvas, decodeImage, releaseSource, drawScaled, encodeCanvas, wireDropzone, escapeHtml, IS_IOS } from './image-io.js';
 import { createImageList } from './image-list.js';
+import { makeSampleSet } from './samples.js';
 import { createZip } from './zip.js';
 
 const PRESETS = [
@@ -18,7 +19,7 @@ const PRESETS = [
 const FADE_STEPS = 5;
 const FADE_STEP_MS = 60;
 const EMAIL_LIMIT = 1024 * 1024;
-const PLAYER_MAX_PIXELS = 80e6; // width × height × frames we are willing to hold in memory
+const PLAYER_MAX_PIXELS = IS_IOS ? 30e6 : 80e6; // width × height × frames we are willing to hold in memory
 
 function fitRect(sw, sh, W, H, mode) {
     if (mode === 'cover') {
@@ -299,6 +300,15 @@ export function initGifWorkspace({ root, toast, sendToEditor }) {
     }
 
     $('gm-run-btn').addEventListener('click', create);
+    $('gm-sample-btn').addEventListener('click', async () => {
+        const btn = $('gm-sample-btn');
+        btn.disabled = true;
+        try {
+            await list.add(await makeSampleSet());
+        } finally {
+            btn.disabled = false;
+        }
+    });
     $('gm-download').addEventListener('click', () => {
         if (resultBytes) downloadBlob(resultBytes, 'slideshow.gif', 'image/gif');
     });
@@ -317,6 +327,7 @@ export function initGifWorkspace({ root, toast, sendToEditor }) {
         let playing = true;
         let timer = 0;
         let name = 'animation';
+        let playsDone = 0; // completed passes through the animation in this playback
 
         function clearTimer() {
             if (timer) clearTimeout(timer);
@@ -337,12 +348,25 @@ export function initGifWorkspace({ root, toast, sendToEditor }) {
             if (!playing || frames.length < 2 || root.hidden || mode !== 'play') return;
             const speed = Number($('gp-speed').value) || 1;
             timer = setTimeout(() => {
+                if (idx === frames.length - 1) {
+                    playsDone++;
+                    // Honour the GIF's own repeat setting, as browsers do: no loop block plays
+                    // once, a count of n plays n + 1 times, 0 loops forever.
+                    const loops = info.loops;
+                    const total = loops === null ? 1 : loops === 0 ? Infinity : loops + 1;
+                    if (playsDone >= total) {
+                        setPlaying(false);
+                        return;
+                    }
+                }
                 show(idx + 1);
                 schedule();
             }, frames[idx].delay / speed);
         }
 
         function setPlaying(p) {
+            if (p && !playing && idx === frames.length - 1) show(0); // replay from the start
+            if (p && !playing) playsDone = 0;
             playing = p;
             $('gp-play').textContent = playing ? '❚❚ Pause' : '▶ Play';
             schedule();
@@ -358,6 +382,7 @@ export function initGifWorkspace({ root, toast, sendToEditor }) {
                     throw new Error(`"${file.name}" isn't a GIF this player can read.`);
                 }
                 const W = reader.width, H = reader.height, n = reader.numFrames();
+                if (n < 1 || W < 1 || H < 1) throw new Error(`"${file.name}" has no frames to show.`);
                 if (W * H * n > PLAYER_MAX_PIXELS) throw new Error(`This GIF is too large to step through here (${W} × ${H} px, ${n} frames).`);
                 for (const f of frames) f.bitmap.close?.();
                 frames = [];
@@ -371,8 +396,11 @@ export function initGifWorkspace({ root, toast, sendToEditor }) {
                     const fi = reader.frameInfo(i);
                     if (prev) {
                         if (prev.disposal === 2) {
-                            for (let y = prev.y; y < prev.y + prev.height; y++) {
-                                pixels.fill(0, (y * W + prev.x) * 4, (y * W + prev.x + prev.width) * 4);
+                            // Clamp to the canvas so a malformed frame can't spill onto other rows.
+                            const x0 = Math.max(0, prev.x), x1 = Math.min(W, prev.x + prev.width);
+                            const y0 = Math.max(0, prev.y), y1 = Math.min(H, prev.y + prev.height);
+                            for (let y = y0; y < y1 && x1 > x0; y++) {
+                                pixels.fill(0, (y * W + x0) * 4, (y * W + x1) * 4);
                             }
                         } else if (prev.disposal === 3 && saved) {
                             pixels.set(saved);
@@ -396,7 +424,7 @@ export function initGifWorkspace({ root, toast, sendToEditor }) {
                 $('gp-controls').hidden = false;
                 $('gp-frame').max = String(n - 1);
                 $('gp-label').textContent = `${file.name} · ${W} × ${H} px`;
-                const loopText = loops === null ? 'Plays once' : loops === 0 ? 'Loops forever' : `Repeats ${loops} time${loops === 1 ? '' : 's'}`;
+                const loopText = loops === null ? 'Plays once' : loops === 0 ? 'Loops forever' : `Plays ${loops + 1} times`;
                 $('gp-info').innerHTML = [
                     ['Size', `${W} × ${H} px`],
                     ['Frames', String(n)],
@@ -405,6 +433,7 @@ export function initGifWorkspace({ root, toast, sendToEditor }) {
                     ['File size', formatBytes(file.size)],
                 ].map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(v)}</dd>`).join('');
                 ['gp-save-frame', 'gp-save-all', 'gp-edit-frame'].forEach((id) => { $(id).disabled = false; });
+                playing = false;
                 show(0);
                 setPlaying(n > 1);
             } catch (err) {
@@ -497,8 +526,16 @@ export function initGifWorkspace({ root, toast, sendToEditor }) {
     return {
         handleFiles(files) {
             const gifs = files.filter((f) => f.type === 'image/gif' || /\.gif$/i.test(f.name));
-            if (mode === 'play' && gifs.length) player.open(gifs[0]);
-            else list.add(files);
+            if (mode === 'play' && gifs.length) {
+                player.open(gifs[0]);
+            } else {
+                if (mode === 'play') {
+                    // A photo pasted into the player belongs in the slideshow; show it there.
+                    setMode('make');
+                    toast(`Added ${files.length === 1 ? 'the photo' : `${files.length} photos`} to the GIF slideshow.`, 'info');
+                }
+                list.add(files);
+            }
         },
         onShow() {
             if (mode === 'make') {

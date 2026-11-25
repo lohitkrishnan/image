@@ -4,6 +4,8 @@ import { initEditWorkspace } from './ws-edit.js';
 import { initPdfWorkspace } from './ws-pdf.js';
 import { initMergeWorkspace } from './ws-merge.js';
 import { initGifWorkspace } from './ws-gif.js';
+import { initMobileCta, wireCameraButtons } from './mobile.js';
+import { imageNotices, IS_IOS } from './image-io.js';
 
 const THEME_KEY = 'lk_image_theme';
 
@@ -126,8 +128,76 @@ function initApp() {
     window.addEventListener('dragover', (e) => e.preventDefault());
     window.addEventListener('drop', (e) => e.preventDefault());
 
+    // Links and the back button can change the #tab without reloading the page.
+    window.addEventListener('hashchange', () => {
+        const t = location.hash.slice(1);
+        if (panels[t] && t !== activeTab) switchToTab(t);
+    });
+
     const initial = location.hash.slice(1);
     switchToTab(panels[initial] ? initial : 'resize');
+    initOffline(toast);
+    wireCameraButtons();
+    const reducedSeen = new Set();
+    imageNotices.addEventListener('reduced', (e) => {
+        const { name, from, to } = e.detail;
+        if (reducedSeen.has(name)) return;
+        reducedSeen.add(name);
+        const mp = Math.round((from[0] * from[1]) / 1e6);
+        toast(`${name} is ${mp} MP, more than this ${IS_IOS ? 'iPhone or iPad' : 'browser'} can edit, so it was reduced to ${to[0]} × ${to[1]} px.`, 'warn');
+    });
+    initMobileCta();
+}
+
+// Offline support: cache the app so it opens without a connection after one visit. When a
+// new version has downloaded, offer a reload instead of swapping files under the user's work.
+function initOffline(toast) {
+    if (!('serviceWorker' in navigator) || location.protocol === 'file:') return;
+    const showUpdate = (worker) => {
+        if (document.getElementById('update-banner')) return;
+        const bar = document.createElement('div');
+        bar.id = 'update-banner';
+        bar.className = 'update-banner';
+        bar.setAttribute('role', 'status');
+        bar.innerHTML = '<span>A new version of Image Studio is ready.</span>';
+        const reload = document.createElement('button');
+        reload.type = 'button';
+        reload.className = 'btn btn-primary btn-sm';
+        reload.textContent = 'Reload';
+        reload.addEventListener('click', () => {
+            reload.disabled = true;
+            navigator.serviceWorker.addEventListener('controllerchange', () => location.reload(), { once: true });
+            worker.postMessage('skipWaiting');
+        });
+        const later = document.createElement('button');
+        later.type = 'button';
+        later.className = 'btn btn-ghost btn-sm';
+        later.textContent = 'Later';
+        later.addEventListener('click', () => bar.remove());
+        bar.append(reload, later);
+        document.body.appendChild(bar);
+    };
+    window.addEventListener('load', async () => {
+        try {
+            const firstInstall = !navigator.serviceWorker.controller;
+            const reg = await navigator.serviceWorker.register('./sw.js');
+            if (reg.waiting && navigator.serviceWorker.controller) showUpdate(reg.waiting);
+            reg.addEventListener('updatefound', () => {
+                const nw = reg.installing;
+                nw?.addEventListener('statechange', () => {
+                    if (nw.state !== 'installed') return;
+                    if (navigator.serviceWorker.controller) showUpdate(nw);
+                    else if (firstInstall) toast('Image Studio is now saved for offline use on this device.', 'ok');
+                });
+            });
+            // Look for a new version when the user comes back to a long-open tab.
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') reg.update().catch(() => {});
+            });
+        } catch {
+            // Offline support is a bonus; the app works without it.
+        }
+    });
 }
 
 document.addEventListener('DOMContentLoaded', initApp);

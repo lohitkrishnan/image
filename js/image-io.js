@@ -2,6 +2,7 @@
 // decoded, resized and re-encoded locally and never uploaded.
 
 import { crc32 } from './zip.js';
+import { deliverFile } from './mobile.js';
 
 export const FORMATS = {
     jpg: { mime: 'image/jpeg', ext: 'jpg', label: 'JPG', lossy: true, alpha: false },
@@ -10,6 +11,15 @@ export const FORMATS = {
 };
 
 export const ACCEPT = 'image/*,.heic,.heif';
+
+// iPhones and iPads refuse to create canvases above about 16.7 million pixels (a 48 MP photo is
+// three times that). Other browsers manage far more; 100 MP keeps memory use reasonable.
+export const IS_IOS = typeof navigator !== 'undefined'
+    && (/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+export const MAX_CANVAS_PIXELS = IS_IOS ? 16_000_000 : 100_000_000;
+
+/** Fires 'reduced' events ({ detail: { name, from, to } }) when a photo is shrunk to fit MAX_CANVAS_PIXELS. */
+export const imageNotices = new EventTarget();
 
 export function formatBytes(n) {
     if (!Number.isFinite(n)) return '—';
@@ -30,14 +40,7 @@ export function escapeHtml(s) {
 
 export function downloadBlob(data, filename, mime) {
     const blob = data instanceof Blob ? data : new Blob([data], { type: mime || 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    deliverFile(blob, filename);
 }
 
 export function createCanvas(w, h) {
@@ -135,7 +138,7 @@ async function decodeWithImgElement(blob) {
  * Decode a File/Blob into a drawable source, honouring EXIF orientation.
  * Returns { source, width, height, via }. `source` is an ImageBitmap or canvas.
  */
-export async function decodeImage(file) {
+async function decodeImageRaw(file) {
     const head = new Uint8Array(await file.slice(0, 32).arrayBuffer());
     const heic = looksLikeHeic(file, head);
     try {
@@ -154,6 +157,18 @@ export async function decodeImage(file) {
     } catch {
         throw new Error(`"${file.name || 'This file'}" isn't an image this browser can open.`);
     }
+}
+
+export async function decodeImage(file) {
+    const dec = await decodeImageRaw(file);
+    if (dec.width * dec.height <= MAX_CANVAS_PIXELS) return dec;
+    // Too big for this device's canvases: work on a reduced copy and say so.
+    const k = Math.sqrt(MAX_CANVAS_PIXELS / (dec.width * dec.height)) * 0.98;
+    const w = Math.floor(dec.width * k), h = Math.floor(dec.height * k);
+    const reduced = drawScaled(dec.source, w, h);
+    releaseSource(dec.source);
+    imageNotices.dispatchEvent(new CustomEvent('reduced', { detail: { name: file.name || 'image', from: [dec.width, dec.height], to: [w, h] } }));
+    return { source: reduced, width: w, height: h, via: dec.via, reducedFrom: [dec.width, dec.height] };
 }
 
 export function releaseSource(src) {
@@ -283,6 +298,16 @@ export async function encodeToTarget(canvas, { format = 'jpg', maxBytes = null, 
     const notes = [];
 
     const done = (bytes, q, ok = true) => {
+        // A small JPEG can't always reach a form's minimum file size, even at top quality. Forms
+        // only check the size, so add an invisible comment section; the picture is unchanged.
+        if (format === 'jpg' && minBytes && bytes.length < minBytes && (!maxBytes || minBytes < maxBytes)) {
+            const target = maxBytes ? Math.min(maxBytes, minBytes + 512) : minBytes + 512;
+            const added = target - bytes.length;
+            bytes = padJpeg(bytes, target);
+            notes.length = 0;
+            notes.push(`Padded with ${formatBytes(added)} of blank file data to reach the ${formatBytes(minBytes)} minimum. The picture itself is unchanged.`);
+            ok = true;
+        }
         const result = { bytes, width: work.width, height: work.height, quality: q, note: notes.join(' '), ok, scaled };
         if (work !== canvas) releaseCanvas(work);
         return result;
@@ -377,6 +402,36 @@ export async function encodeToTarget(canvas, { format = 'jpg', maxBytes = null, 
     notes.push('Gave up after several attempts.');
     const last = await encodeCanvas(work, { format, quality: 0.5, dpi });
     return done(last, 0.5, false);
+}
+
+/**
+ * Grow a JPEG to exactly `targetLength` bytes by inserting comment (COM) segments before the
+ * end-of-image marker. Decoders ignore comments, so the image is unchanged.
+ */
+export function padJpeg(bytes, targetLength) {
+    const end = bytes.length - 2;
+    if (bytes[end] !== 0xff || bytes[end + 1] !== 0xd9 || targetLength <= bytes.length) return bytes;
+    const out = new Uint8Array(targetLength);
+    out.set(bytes.subarray(0, end), 0);
+    let pos = end;
+    let need = targetLength - bytes.length;
+    while (need > 0) {
+        // Each segment: FF FE + 2-byte length (which counts itself) + payload; at least 4 bytes.
+        let seg = Math.min(need, 65535 + 2);
+        if (need - seg > 0 && need - seg < 4) seg -= 4; // leave room for a final valid segment
+        seg = Math.max(seg, 4);
+        const len = seg - 2;
+        out[pos] = 0xff;
+        out[pos + 1] = 0xfe;
+        out[pos + 2] = (len >> 8) & 0xff;
+        out[pos + 3] = len & 0xff;
+        out.fill(0x20, pos + 4, pos + seg); // spaces
+        pos += seg;
+        need -= seg;
+    }
+    out[pos] = 0xff;
+    out[pos + 1] = 0xd9;
+    return out;
 }
 
 // ---------- File intake helpers ----------

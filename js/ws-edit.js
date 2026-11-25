@@ -9,13 +9,15 @@
 
 import {
     FORMATS, baseName, downloadBlob, createCanvas, releaseCanvas, decodeImage,
-    releaseSource, drawScaled, encodeCanvas, supportsWebpEncoding, wireDropzone,
-} from './image-io.js';
+    releaseSource, drawScaled, encodeCanvas, supportsWebpEncoding, wireDropzone, MAX_CANVAS_PIXELS } from './image-io.js';
 import { makeLandscapeSample } from './samples.js';
 
 const PREVIEW_MAX = 2400; // longest side of the cached preview bitmap
-const MAX_OUTPUT_PIXELS = 100e6;
-const HANDLE = 9; // screen px
+const MAX_OUTPUT_PIXELS = MAX_CANVAS_PIXELS; // larger canvases fail (on iPhones, above ~16 MP)
+// Handles are bigger, and easier to hit, on touch screens.
+const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+const HANDLE = COARSE ? 16 : 9; // drawn size, screen px
+const HIT = COARSE ? 24 : 9; // grab distance, screen px
 const FONT = '600 {px}px system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 const LINE_HEIGHT = 1.25;
 
@@ -342,7 +344,14 @@ export function initEditWorkspace({ root, toast }) {
         M = mul(scaleM(tf.flipH ? -1 : 1, tf.flipV ? -1 : 1), M);
         M = mul(rotateM(theta), M);
         M = mul(translate(Tw / 2, Th / 2), M);
-        return { M, Tw, Th };
+        // R-space: flipped and turned in quarter steps, but not straightened. The crop is stored
+        // here so straightening can never permanently shrink it. S maps R-space to T-space.
+        let MR = translate(-W / 2, -H / 2);
+        MR = mul(scaleM(tf.flipH ? -1 : 1, tf.flipV ? -1 : 1), MR);
+        MR = mul(rotateM(tf.rot * Math.PI / 180), MR);
+        MR = mul(translate(Rw / 2, Rh / 2), MR);
+        const S = mul(translate(Tw / 2, Th / 2), mul(rotateM(tf.straighten * Math.PI / 180), translate(-Rw / 2, -Rh / 2)));
+        return { M, Tw, Th, MR, S };
     }
 
     function tSize() {
@@ -350,9 +359,26 @@ export function initEditWorkspace({ root, toast }) {
         return { Tw, Th };
     }
 
+    /** The crop in T-space: the stored R-space crop, moved by the straighten angle and shrunk only as needed to fit. */
     function cropRect() {
-        const { Tw, Th } = tSize();
-        return state.crop || { x: 0, y: 0, w: Tw, h: Th };
+        const { Tw, Th, S } = tfInfo(state.tf);
+        if (!state.crop) return { x: 0, y: 0, w: Tw, h: Th };
+        const r = state.crop;
+        const c = apply(S, r.x + r.w / 2, r.y + r.h / 2);
+        const k = Math.min(1, Tw / r.w, Th / r.h);
+        const w = r.w * k, h = r.h * k;
+        return { x: clamp(c.x - w / 2, 0, Tw - w), y: clamp(c.y - h / 2, 0, Th - h), w, h };
+    }
+
+    /** Store a T-space crop rectangle in R-space (keeping its size), or null for the whole image. */
+    function setCropFromT(r) {
+        const { Tw, Th, S } = tfInfo(state.tf);
+        if (!r || isFull(r, Tw, Th)) {
+            state.crop = null;
+            return;
+        }
+        const c = apply(inv(S), r.x + r.w / 2, r.y + r.h / 2);
+        state.crop = { x: c.x - r.w / 2, y: c.y - r.h / 2, w: r.w, h: r.h };
     }
 
     function clampRect(r, Tw, Th) {
@@ -369,10 +395,11 @@ export function initEditWorkspace({ root, toast }) {
     /** Change the geometric transform, carrying crop and annotations along with the content. */
     function setTransform(nextTf) {
         if (!geomBase) {
-            geomBase = { M: tfInfo(state.tf).M, crop: clone(state.crop), cropDraft: clone(cropDraft), annots: clone(state.annots) };
+            const t0 = tfInfo(state.tf);
+            geomBase = { M: t0.M, MR: t0.MR, crop: clone(state.crop), cropDraft: clone(cropDraft), annots: clone(state.annots) };
         }
         state.tf = nextTf;
-        const { M, Tw, Th } = tfInfo(nextTf);
+        const { M, Tw, Th, MR } = tfInfo(nextTf);
         const m = mul(M, inv(geomBase.M));
         // The change is a rotation (plus translation). Rectangles keep their size and follow
         // their centre, swapping width and height for quarter turns, so they don't grow.
@@ -392,7 +419,17 @@ export function initEditWorkspace({ root, toast }) {
             const c = { x: clamp(cx - w / 2, 0, Tw - w), y: clamp(cy - h / 2, 0, Th - h), w, h };
             return isFull(c, Tw, Th) ? null : c;
         };
-        state.crop = remapCrop(geomBase.crop);
+        // The stored crop only changes with quarter turns and flips, which map it exactly.
+        if (geomBase.crop) {
+            const mr = mul(MR, inv(geomBase.MR));
+            const r = geomBase.crop;
+            const c = apply(mr, r.x + r.w / 2, r.y + r.h / 2);
+            const q = Math.abs(Math.round(Math.atan2(mr[1], mr[0]) / (Math.PI / 2))) % 2 === 1;
+            const w = q ? r.h : r.w, h = q ? r.w : r.h;
+            state.crop = { x: c.x - w / 2, y: c.y - h / 2, w, h };
+        } else {
+            state.crop = null;
+        }
         if (cropMode) cropDraft = remapCrop(geomBase.cropDraft) || { x: 0, y: 0, w: Tw, h: Th };
         state.annots = geomBase.annots.map((a0) => {
             const a = clone(a0);
@@ -520,7 +557,8 @@ export function initEditWorkspace({ root, toast }) {
             releaseCanvas(photoLayer);
             photoLayer = createCanvas(canvas.width, canvas.height);
         }
-        const c = photoLayer.getContext('2d');
+        // Adjustments read pixels back every frame; tell the browser so it keeps them in memory.
+        const c = photoLayer.getContext('2d', { willReadFrequently: true });
         c.setTransform(1, 0, 0, 1, 0, 0);
         c.clearRect(0, 0, photoLayer.width, photoLayer.height);
         const { M } = tfInfo(state.tf);
@@ -669,11 +707,11 @@ export function initEditWorkspace({ root, toast }) {
     }
 
     function hitHandle(list, sx, sy) {
-        return list.find((h) => Math.abs(h.x - sx) <= HANDLE && Math.abs(h.y - sy) <= HANDLE) || null;
+        return list.find((h) => Math.abs(h.x - sx) <= HIT && Math.abs(h.y - sy) <= HIT) || null;
     }
 
     function hitAnnotation(p) {
-        const tol = 6 / view.scale;
+        const tol = (COARSE ? 14 : 6) / view.scale;
         for (let i = state.annots.length - 1; i >= 0; i--) {
             const a = state.annots[i];
             if (a.type === 'arrow') {
@@ -725,8 +763,7 @@ export function initEditWorkspace({ root, toast }) {
             beginChange();
             const { Tw, Th } = tSize();
             const r = { x: Math.round(cropDraft.x), y: Math.round(cropDraft.y), w: Math.round(cropDraft.w), h: Math.round(cropDraft.h) };
-            const c = clampRect(r, Tw, Th);
-            state.crop = c && !isFull(c, Tw, Th) ? c : null;
+            setCropFromT(clampRect(r, Tw, Th));
             commitChange();
         }
         cropMode = false;
@@ -1058,10 +1095,16 @@ export function initEditWorkspace({ root, toast }) {
 
     // ---------- Keyboard ----------
 
-    root.addEventListener('keydown', (e) => {
+    // Listen on the document so shortcuts work wherever focus is (a slider, the tab button, the
+    // page itself), but never while typing text.
+    const NON_TEXT_INPUTS = new Set(['range', 'checkbox', 'radio', 'color', 'button', 'file', 'submit', 'reset']);
+    document.addEventListener('keydown', (e) => {
         if (!img || root.hidden) return;
         const t = e.target;
-        const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT');
+        const typing = !!t && (t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable
+            || (t.tagName === 'INPUT' && !NON_TEXT_INPUTS.has(t.type)));
+        // Arrow keys belong to a focused slider or button group, not to the canvas.
+        const ownsArrows = t && t.tagName === 'INPUT' && (t.type === 'range' || t.type === 'radio');
         const mod = e.ctrlKey || e.metaKey;
         if (mod && (e.key === 'z' || e.key === 'Z')) {
             if (typing) return;
@@ -1082,7 +1125,7 @@ export function initEditWorkspace({ root, toast }) {
             else { selectedId = null; renderProps(); draw(); }
             return;
         }
-        if (e.key === 'Enter' && cropMode) {
+        if (e.key === 'Enter' && cropMode && !(t && (t.tagName === 'BUTTON' || t.tagName === 'A'))) {
             e.preventDefault();
             exitCrop(true);
             setTool('select');
@@ -1093,7 +1136,7 @@ export function initEditWorkspace({ root, toast }) {
             deleteSelected();
             return;
         }
-        if (selectedId != null && e.key.startsWith('Arrow')) {
+        if (selectedId != null && e.key.startsWith('Arrow') && !ownsArrows) {
             e.preventDefault();
             const a = state.annots.find((x) => x.id === selectedId);
             const step = (e.shiftKey ? 10 : 1) / view.scale;
@@ -1294,6 +1337,15 @@ export function initEditWorkspace({ root, toast }) {
         if (res.canvas !== base) releaseCanvas(base);
         const map = (x, y) => res.map(x - r.x, y - r.y);
         beginChange();
+        // The redo history is about to be discarded; free sources only it referred to.
+        const keep = new Set([state.src, pending?.src, ...undoStack.map((u) => u.src)]);
+        sources.forEach((sItem, i) => {
+            if (sItem && !keep.has(i)) {
+                if (sItem.preview !== sItem.source) releaseCanvas(sItem.preview);
+                releaseSource(sItem.source);
+                sources[i] = null;
+            }
+        });
         sources.push(makeSource(res.canvas, res.canvas.width, res.canvas.height));
         state.src = sources.length - 1;
         state.tf = { rot: 0, flipH: false, flipV: false, straighten: 0 };
@@ -1309,7 +1361,16 @@ export function initEditWorkspace({ root, toast }) {
                 Object.assign(a, { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
             }
             return a;
+        }).filter((a) => {
+            // Shapes that sat entirely inside a removed strip collapse to nothing: drop them.
+            if (a.type === 'text') return true;
+            if (a.type === 'arrow') return Math.hypot(a.x2 - a.x1, a.y2 - a.y1) >= 2;
+            return Math.abs(a.x2 - a.x1) >= 2 && Math.abs(a.y2 - a.y1) >= 2;
         });
+        if (selectedId && !state.annots.some((a) => a.id === selectedId)) {
+            selectedId = null;
+            renderProps();
+        }
         commitChange();
         syncControls();
         photoDirty = true;
@@ -1543,7 +1604,8 @@ export function initEditWorkspace({ root, toast }) {
     function outputSize() {
         const r = cropRect();
         let w = Math.round(r.w), h = Math.round(r.h);
-        const maxSide = parseInt($('ed-max-side').value, 10);
+        let maxSide = parseInt($('ed-max-side').value, 10);
+        if (maxSide > 0) maxSide = Math.max(16, Math.min(20000, maxSide));
         let k = 1;
         if (maxSide > 0 && Math.max(w, h) > maxSide) {
             k = maxSide / Math.max(r.w, r.h);
@@ -1602,6 +1664,11 @@ export function initEditWorkspace({ root, toast }) {
 
     function settleForExport() {
         finishInlineEdit();
+        if (cutMode) {
+            // A marked strip is applied, like a pending crop; an unmarked one is just closed.
+            if (cutBand && Math.abs(cutBand.b - cutBand.a) >= 1) applyCut();
+            else exitCut();
+        }
         if (cropMode) {
             exitCrop(true);
             setTool('select');
@@ -1677,6 +1744,7 @@ export function initEditWorkspace({ root, toast }) {
             const dec = await decodeImage(file);
             finishInlineEdit();
             for (const sItem of sources) {
+                if (!sItem) continue;
                 if (sItem.preview !== sItem.source) releaseCanvas(sItem.preview);
                 releaseSource(sItem.source);
             }
