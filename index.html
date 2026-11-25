@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Image Studio — Lohit Krishnan</title>
+    <meta name="description" content="Resize, compress and convert images, make passport and visa photos, and edit or annotate pictures, entirely in your browser. Photos never leave your device." />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23faf8f3'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='Georgia,serif' font-size='16' font-weight='700' fill='%23e07b00'%3EI%3C/text%3E%3C/svg%3E" />
+    <link rel="preload" href="./fonts/Lora-Variable.woff" as="font" type="font/woff" crossorigin />
+    <link rel="stylesheet" href="./css/app.css" />
+    <link rel="canonical" href="https://lohitkrishnan.com/image/" />
+    <meta property="og:title" content="Image Studio — Lohit Krishnan" />
+    <meta property="og:description" content="Resize, compress and convert images, make passport and visa photos, and annotate pictures entirely in your browser. Photos never leave your device." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://lohitkrishnan.com/image/" />
+    <meta property="og:site_name" content="Lohit Krishnan" />
+    <meta property="og:image" content="https://lohitkrishnan.com/image/img/og-card.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Image Studio. Resize, make passport photos and annotate, in your browser." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <!-- Page-view counter shared with lohitkrishnan.com. It records visits only; images are never sent anywhere. -->
+    <script data-goatcounter="https://lohitkrishnan.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
+</head>
+<body>
+    <header class="app-header">
+        <div class="header-inner">
+            <div class="brand-group">
+                <a class="back-home" href="https://lohitkrishnan.com/">← lohitkrishnan.com</a>
+                <div class="brand-title-row">
+                    <h1 class="brand-title">Image Studio</h1>
+                    <span class="privacy-pill" title="Images are processed in your browser. Nothing is uploaded.">
+                        <span class="privacy-dot" aria-hidden="true"></span>
+                        100% Local · Zero Upload
+                    </span>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button type="button" id="theme-toggle" class="btn btn-ghost btn-sm" aria-pressed="false">☾ Dark</button>
+            </div>
+        </div>
+
+        <nav class="workspace-tabs" role="tablist" aria-label="Image Studio workspaces">
+            <button type="button" role="tab" id="tab-resize" class="ws-tab js-nav-tab is-active" data-tab="resize" aria-selected="true" aria-controls="ws-resize" tabindex="0">
+                <span class="tab-num">1</span> Resize, Compress &amp; Convert
+            </button>
+            <button type="button" role="tab" id="tab-photo" class="ws-tab js-nav-tab" data-tab="photo" aria-selected="false" aria-controls="ws-photo" tabindex="-1">
+                <span class="tab-num">2</span> Passport &amp; ID Photo
+            </button>
+            <button type="button" role="tab" id="tab-edit" class="ws-tab js-nav-tab" data-tab="edit" aria-selected="false" aria-controls="ws-edit" tabindex="-1">
+                <span class="tab-num">3</span> Edit &amp; Annotate
+            </button>
+        </nav>
+    </header>
+
+    <main class="app-main">
+        <!-- WORKSPACE 1: Resize, Compress & Convert -->
+        <section id="ws-resize" class="workspace-panel" role="tabpanel" aria-labelledby="tab-resize">
+            <div class="ws-grid-2col">
+                <div class="ws-main-col">
+                    <div class="panel-card">
+                        <div class="dropzone-header">
+                            <div>
+                                <h2 class="panel-title">Resize, Compress &amp; Convert</h2>
+                                <p class="panel-sub">Add one photo or many. Works with JPG, PNG, WebP and iPhone HEIC. You can also paste with <kbd>Ctrl+V</kbd>.</p>
+                            </div>
+                            <div class="header-btn-group">
+                                <button type="button" id="rs-sample-btn" class="btn btn-secondary btn-sm">Try a sample photo</button>
+                                <button type="button" id="rs-clear-btn" class="btn btn-ghost btn-sm" disabled>Clear</button>
+                            </div>
+                        </div>
+
+                        <div id="rs-dropzone" class="dropzone" tabindex="0" role="button">
+                            <input type="file" id="rs-file-input" accept="image/*,.heic,.heif" multiple hidden />
+                            <div class="dropzone-prompt"><strong>Drop images here</strong> or click to choose</div>
+                        </div>
+
+                        <div id="rs-empty-state" class="empty-state">No images yet. Add some above, or try the sample photo.</div>
+                        <div id="rs-queue" class="queue-list"></div>
+
+                        <div id="rs-summary-bar" class="summary-bar" hidden>
+                            <div id="rs-summary-text" class="summary-text"></div>
+                            <div class="summary-actions">
+                                <button type="button" id="rs-download-all-btn" class="btn btn-primary btn-sm" disabled>Download All</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <aside class="ws-side-col">
+                    <div class="panel-card sticky-panel">
+                        <div class="form-stack">
+                            <div class="field-group">
+                                <label class="field-label" for="rs-preset">Preset</label>
+                                <select id="rs-preset" class="input"></select>
+                                <p id="rs-preset-note" class="field-note" hidden></p>
+                            </div>
+
+                            <div class="field-group">
+                                <span class="field-label" id="rs-format-label">Output format</span>
+                                <div class="segmented-control seg-4" role="group" aria-labelledby="rs-format-label">
+                                    <button type="button" class="seg-btn is-active" data-format="jpg">JPG</button>
+                                    <button type="button" class="seg-btn" data-format="png">PNG</button>
+                                    <button type="button" class="seg-btn" data-format="webp">WebP</button>
+                                    <button type="button" class="seg-btn" data-format="same">Same</button>
+                                </div>
+                            </div>
+
+                            <div class="field-group">
+                                <label class="field-label" for="rs-mode">Size</label>
+                                <select id="rs-mode" class="input">
+                                    <option value="original">Keep original size</option>
+                                    <option value="longest">Longest side (px)</option>
+                                    <option value="exact">Exact width × height (px)</option>
+                                    <option value="percent">Scale (%)</option>
+                                    <option value="print">Print size (cm / mm / in)</option>
+                                </select>
+                                <div id="rs-size-longest" class="inline-fields" hidden>
+                                    <input type="number" id="rs-longest" class="input input-sm" min="16" max="20000" value="1920" aria-label="Longest side in pixels" />
+                                    <span class="muted">px</span>
+                                </div>
+                                <div id="rs-size-exact" class="inline-fields" hidden>
+                                    <input type="number" id="rs-width" class="input input-sm" min="1" max="20000" value="600" aria-label="Width in pixels" />
+                                    <span class="muted">×</span>
+                                    <input type="number" id="rs-height" class="input input-sm" min="1" max="20000" value="600" aria-label="Height in pixels" />
+                                    <span class="muted">px</span>
+                                </div>
+                                <div id="rs-size-percent" class="inline-fields" hidden>
+                                    <input type="number" id="rs-percent" class="input input-sm" min="1" max="400" value="50" aria-label="Scale in percent" />
+                                    <span class="muted">%</span>
+                                </div>
+                                <div id="rs-size-print" class="print-fields" hidden>
+                                    <div class="inline-fields">
+                                        <input type="number" id="rs-print-w" class="input input-sm" min="0.1" step="0.1" value="3.5" aria-label="Print width" />
+                                        <span class="muted">×</span>
+                                        <input type="number" id="rs-print-h" class="input input-sm" min="0.1" step="0.1" value="4.5" aria-label="Print height" />
+                                        <select id="rs-print-unit" class="input input-sm" aria-label="Unit">
+                                            <option value="cm" selected>cm</option>
+                                            <option value="mm">mm</option>
+                                            <option value="in">in</option>
+                                        </select>
+                                    </div>
+                                    <div class="inline-fields">
+                                        <span class="muted">at</span>
+                                        <input type="number" id="rs-dpi" class="input input-sm" min="72" max="1200" value="300" aria-label="Dots per inch" />
+                                        <span class="muted">DPI</span>
+                                        <span id="rs-print-px" class="muted"></span>
+                                    </div>
+                                </div>
+                                <div id="rs-fit-row" class="field-group" hidden>
+                                    <span class="field-label" id="rs-fit-label">When the shape differs</span>
+                                    <div class="segmented-control" role="group" aria-labelledby="rs-fit-label">
+                                        <button type="button" class="seg-btn is-active" data-fit="cover" title="Fill the size, trimming the edges">Crop to fill</button>
+                                        <button type="button" class="seg-btn" data-fit="contain" title="Fit inside, adding plain borders">Fit with borders</button>
+                                        <button type="button" class="seg-btn" data-fit="stretch" title="Stretch to the exact size">Stretch</button>
+                                    </div>
+                                </div>
+                                <label class="checkbox-row" id="rs-noup-row" hidden>
+                                    <input type="checkbox" id="rs-no-upscale" checked />
+                                    <span>Don't enlarge smaller images</span>
+                                </label>
+                            </div>
+
+                            <div class="field-group">
+                                <span class="field-label">File size</span>
+                                <div class="inline-fields">
+                                    <label class="muted" for="rs-min-kb">Min</label>
+                                    <input type="number" id="rs-min-kb" class="input input-sm" min="1" placeholder="—" />
+                                    <label class="muted" for="rs-max-kb">Max</label>
+                                    <input type="number" id="rs-max-kb" class="input input-sm" min="1" placeholder="—" />
+                                    <span class="muted">KB</span>
+                                </div>
+                                <label class="checkbox-row">
+                                    <input type="checkbox" id="rs-allow-shrink" checked />
+                                    <span>Allow smaller dimensions to meet the size</span>
+                                </label>
+                                <div id="rs-quality-row" class="range-row">
+                                    <label class="muted" for="rs-quality">Quality</label>
+                                    <input type="range" id="rs-quality" min="10" max="100" value="85" />
+                                    <span id="rs-quality-val" class="muted">85</span>
+                                </div>
+                            </div>
+
+                            <div class="field-group">
+                                <label class="field-label" for="rs-suffix">File name ending</label>
+                                <input type="text" id="rs-suffix" class="input input-sm" value="_resized" />
+                            </div>
+
+                            <p class="field-note">Saved images don't keep the original's location or camera details.</p>
+
+                            <button type="button" id="rs-run-btn" class="btn btn-primary" disabled>Process Images</button>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+        </section>
+
+        <!-- WORKSPACE 2: Passport & ID Photo -->
+        <section id="ws-photo" class="workspace-panel" role="tabpanel" aria-labelledby="tab-photo" hidden>
+            <div class="ws-grid-2col">
+                <div class="ws-main-col">
+                    <div class="panel-card">
+                        <div class="dropzone-header">
+                            <div>
+                                <h2 class="panel-title">Passport &amp; ID Photo</h2>
+                                <p class="panel-sub">Use a sharp, front-facing photo against a plain light wall, with your head and shoulders in view.</p>
+                            </div>
+                            <div class="header-btn-group">
+                                <button type="button" id="ph-open-btn" class="btn btn-secondary btn-sm">Choose Photo</button>
+                                <button type="button" id="ph-sample-btn" class="btn btn-ghost btn-sm">Try a sample</button>
+                            </div>
+                        </div>
+                        <input type="file" id="ph-file-input" accept="image/*,.heic,.heif" hidden />
+
+                        <div id="ph-dropzone" class="dropzone ph-dropzone" tabindex="0" role="button">
+                            <div class="dropzone-prompt"><strong>Drop a photo here</strong> or click to choose</div>
+                        </div>
+
+                        <div id="ph-workarea" class="ph-workarea" hidden>
+                            <div class="ph-stage-wrap">
+                                <div id="ph-stage" class="ph-stage" tabindex="0" aria-label="Photo framing area. Drag to move, scroll or pinch to zoom, arrow keys to nudge.">
+                                    <canvas id="ph-canvas"></canvas>
+                                </div>
+                                <ul class="ph-legend">
+                                    <li><span class="lg lg-crown"></span> Top of head</li>
+                                    <li><span class="lg lg-chin"></span> Chin goes in this band</li>
+                                    <li id="ph-legend-eyes" hidden><span class="lg lg-eyes"></span> Eyes in this band</li>
+                                </ul>
+                            </div>
+                            <div class="ph-controls">
+                                <p class="field-note">Drag the photo so the top of the head touches the orange line and the chin sits in the green band, centred on the dotted line.</p>
+                                <div class="range-row">
+                                    <label class="muted" for="ph-zoom">Zoom</label>
+                                    <input type="range" id="ph-zoom" min="0" max="1000" value="500" />
+                                </div>
+                                <div class="range-row">
+                                    <label class="muted" for="ph-rotate">Straighten</label>
+                                    <input type="range" id="ph-rotate" min="-150" max="150" value="0" />
+                                    <span id="ph-rotate-val" class="muted">0°</span>
+                                </div>
+                                <div class="btn-row">
+                                    <button type="button" id="ph-reset-btn" class="btn btn-ghost btn-xs">Reset position</button>
+                                    <label class="checkbox-row compact"><input type="checkbox" id="ph-guides" checked /> <span>Show guides</span></label>
+                                </div>
+                                <div id="ph-bg-check" class="bg-check" role="status"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <aside class="ws-side-col">
+                    <div class="panel-card sticky-panel">
+                        <div class="form-stack">
+                            <div class="field-group">
+                                <label class="field-label" for="ph-spec">Document</label>
+                                <select id="ph-spec" class="input"></select>
+                            </div>
+                            <div id="ph-spec-info" class="spec-info"></div>
+
+                            <div id="ph-custom" class="form-stack" hidden>
+                                <div class="inline-fields">
+                                    <label class="muted" for="ph-c-w">Size</label>
+                                    <input type="number" id="ph-c-w" class="input input-sm" min="10" max="200" step="0.5" value="35" aria-label="Width in millimetres" />
+                                    <span class="muted">×</span>
+                                    <input type="number" id="ph-c-h" class="input input-sm" min="10" max="200" step="0.5" value="45" aria-label="Height in millimetres" />
+                                    <span class="muted">mm</span>
+                                </div>
+                                <div class="inline-fields">
+                                    <label class="muted" for="ph-c-hmin">Head</label>
+                                    <input type="number" id="ph-c-hmin" class="input input-sm" min="5" max="200" step="0.5" value="30" aria-label="Minimum head height in millimetres" />
+                                    <span class="muted">–</span>
+                                    <input type="number" id="ph-c-hmax" class="input input-sm" min="5" max="200" step="0.5" value="36" aria-label="Maximum head height in millimetres" />
+                                    <span class="muted">mm</span>
+                                </div>
+                                <div class="inline-fields">
+                                    <label class="muted" for="ph-c-pw">File</label>
+                                    <input type="number" id="ph-c-pw" class="input input-sm" min="50" max="4000" value="413" aria-label="Width in pixels" />
+                                    <span class="muted">×</span>
+                                    <input type="number" id="ph-c-ph" class="input input-sm" min="50" max="4000" value="531" aria-label="Height in pixels" />
+                                    <span class="muted">px</span>
+                                </div>
+                                <div class="inline-fields">
+                                    <label class="muted" for="ph-c-min">KB</label>
+                                    <input type="number" id="ph-c-min" class="input input-sm" min="1" placeholder="min" aria-label="Minimum file size in KB" />
+                                    <span class="muted">–</span>
+                                    <input type="number" id="ph-c-max" class="input input-sm" min="1" placeholder="max" aria-label="Maximum file size in KB" />
+                                </div>
+                            </div>
+
+                            <hr class="divider" />
+
+                            <div class="field-group">
+                                <h3 class="side-title">Digital photo</h3>
+                                <p id="ph-digital-desc" class="field-note"></p>
+                                <button type="button" id="ph-download-digital" class="btn btn-primary btn-sm" disabled>Download Photo</button>
+                            </div>
+
+                            <hr class="divider" />
+
+                            <div class="field-group">
+                                <h3 class="side-title">Print sheet</h3>
+                                <label class="field-label" for="ph-sheet">Paper</label>
+                                <select id="ph-sheet" class="input input-sm"></select>
+                                <p id="ph-sheet-desc" class="field-note"></p>
+                                <button type="button" id="ph-download-sheet" class="btn btn-secondary btn-sm" disabled>Download Print Sheet</button>
+                            </div>
+
+                            <p class="field-note">Only crops and resizes: no retouching, which most authorities don't allow. Always check the current rules on the official site.</p>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+        </section>
+
+        <!-- WORKSPACE 3: Edit & Annotate -->
+        <section id="ws-edit" class="workspace-panel" role="tabpanel" aria-labelledby="tab-edit" hidden>
+            <div class="ws-grid-2col">
+                <div class="ws-main-col">
+                    <div class="panel-card">
+                        <div class="dropzone-header">
+                            <div>
+                                <h2 class="panel-title">Edit &amp; Annotate</h2>
+                                <p id="ed-file-label" class="panel-sub">Crop, rotate, adjust, and add text, arrows and boxes.</p>
+                            </div>
+                            <div class="header-btn-group">
+                                <button type="button" id="ed-open-btn" class="btn btn-secondary btn-sm">Open Image</button>
+                                <button type="button" id="ed-sample-btn" class="btn btn-ghost btn-sm">Try a sample</button>
+                            </div>
+                        </div>
+                        <input type="file" id="ed-file-input" accept="image/*,.heic,.heif" hidden />
+
+                        <div class="ed-toolbar" role="toolbar" aria-label="Editing tools">
+                            <div class="tool-group" role="group" aria-label="Tools">
+                                <button type="button" class="tool-btn is-active" data-tool="select" title="Select and move (V)">↖ Select</button>
+                                <button type="button" class="tool-btn" data-tool="crop" title="Crop (C)">✂ Crop</button>
+                                <button type="button" class="tool-btn" data-tool="text" title="Text (T)">T Text</button>
+                                <button type="button" class="tool-btn" data-tool="arrow" title="Arrow (A)">➚ Arrow</button>
+                                <button type="button" class="tool-btn" data-tool="rect" title="Box (B)">▭ Box</button>
+                                <button type="button" class="tool-btn" data-tool="highlight" title="Highlight (H)">▬ Highlight</button>
+                                <button type="button" class="tool-btn" data-tool="blur" title="Blur or pixelate an area (R)">▦ Blur</button>
+                            </div>
+                            <div class="tool-group" role="group" aria-label="History">
+                                <button type="button" id="ed-undo" class="tool-btn" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
+                                <button type="button" id="ed-redo" class="tool-btn" disabled title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
+                                <button type="button" id="ed-reset-all" class="tool-btn" disabled title="Undo every change (you can still Undo this)">Reset all</button>
+                            </div>
+                        </div>
+
+                        <div id="ed-stage" class="ed-stage" tabindex="0" aria-label="Image canvas">
+                            <div id="ed-empty" class="ed-empty dropzone">
+                                <div class="dropzone-prompt"><strong>Drop an image here</strong> or click to choose</div>
+                            </div>
+                            <canvas id="ed-canvas" hidden></canvas>
+                            <textarea id="ed-inline-text" class="ed-inline-text" hidden aria-label="Annotation text"></textarea>
+                        </div>
+                        <div id="ed-crop-bar" class="ed-crop-bar" hidden>
+                            <label class="muted" for="ed-crop-aspect">Shape</label>
+                            <select id="ed-crop-aspect" class="input input-sm">
+                                <option value="free">Free</option>
+                                <option value="orig">Original</option>
+                                <option value="1">Square 1:1</option>
+                                <option value="1.3333">4:3</option>
+                                <option value="0.75">3:4</option>
+                                <option value="1.7778">16:9</option>
+                                <option value="1.5">3:2</option>
+                            </select>
+                            <span id="ed-crop-size" class="muted"></span>
+                            <span class="spacer"></span>
+                            <button type="button" id="ed-crop-cancel" class="btn btn-ghost btn-sm">Cancel</button>
+                            <button type="button" id="ed-crop-apply" class="btn btn-primary btn-sm">Apply Crop</button>
+                        </div>
+                    </div>
+                </div>
+
+                <aside class="ws-side-col">
+                    <div class="panel-card sticky-panel">
+                        <div class="form-stack">
+                            <div class="field-group">
+                                <h3 class="side-title">Rotate &amp; flip</h3>
+                                <div class="btn-row">
+                                    <button type="button" id="ed-rot-left" class="btn btn-ghost btn-xs" title="Rotate left" disabled>⟲ 90°</button>
+                                    <button type="button" id="ed-rot-right" class="btn btn-ghost btn-xs" title="Rotate right" disabled>⟳ 90°</button>
+                                    <button type="button" id="ed-flip-h" class="btn btn-ghost btn-xs" disabled>⇋ Flip</button>
+                                    <button type="button" id="ed-flip-v" class="btn btn-ghost btn-xs" disabled>⇵ Flip</button>
+                                </div>
+                                <div class="range-row">
+                                    <label class="muted" for="ed-straighten">Straighten</label>
+                                    <input type="range" id="ed-straighten" min="-450" max="450" value="0" disabled />
+                                    <span id="ed-straighten-val" class="muted">0°</span>
+                                </div>
+                            </div>
+
+                            <div class="field-group">
+                                <h3 class="side-title">Adjust</h3>
+                                <div class="range-row">
+                                    <label class="muted" for="ed-brightness">Brightness</label>
+                                    <input type="range" id="ed-brightness" min="-100" max="100" value="0" disabled />
+                                    <span id="ed-brightness-val" class="muted">0</span>
+                                </div>
+                                <div class="range-row">
+                                    <label class="muted" for="ed-contrast">Contrast</label>
+                                    <input type="range" id="ed-contrast" min="-100" max="100" value="0" disabled />
+                                    <span id="ed-contrast-val" class="muted">0</span>
+                                </div>
+                                <div class="range-row">
+                                    <label class="muted" for="ed-saturation">Saturation</label>
+                                    <input type="range" id="ed-saturation" min="-100" max="100" value="0" disabled />
+                                    <span id="ed-saturation-val" class="muted">0</span>
+                                </div>
+                                <button type="button" id="ed-reset-adjust" class="btn btn-ghost btn-xs" disabled>Reset adjustments</button>
+                            </div>
+
+                            <div id="ed-props" class="field-group ed-props" hidden>
+                                <h3 class="side-title" id="ed-props-title">Selected</h3>
+                                <label class="field-label" for="ed-prop-text" id="ed-prop-text-label">Text</label>
+                                <textarea id="ed-prop-text" class="input input-sm" rows="2"></textarea>
+                                <span class="field-label" id="ed-prop-color-label">Colour</span>
+                                <div class="swatches" role="group" aria-labelledby="ed-prop-color-label">
+                                    <button type="button" class="swatch" data-color="#e11d48" style="--sw:#e11d48" aria-label="Red"></button>
+                                    <button type="button" class="swatch" data-color="#f59e0b" style="--sw:#f59e0b" aria-label="Amber"></button>
+                                    <button type="button" class="swatch" data-color="#facc15" style="--sw:#facc15" aria-label="Yellow"></button>
+                                    <button type="button" class="swatch" data-color="#16a34a" style="--sw:#16a34a" aria-label="Green"></button>
+                                    <button type="button" class="swatch" data-color="#2563eb" style="--sw:#2563eb" aria-label="Blue"></button>
+                                    <button type="button" class="swatch" data-color="#111111" style="--sw:#111111" aria-label="Black"></button>
+                                    <button type="button" class="swatch" data-color="#ffffff" style="--sw:#ffffff" aria-label="White"></button>
+                                </div>
+                                <div class="range-row" id="ed-prop-size-row">
+                                    <label class="muted" for="ed-prop-size" id="ed-prop-size-label">Size</label>
+                                    <input type="range" id="ed-prop-size" min="1" max="100" value="12" />
+                                    <span id="ed-prop-size-val" class="muted"></span>
+                                </div>
+                                <label class="checkbox-row" id="ed-prop-fill-row">
+                                    <input type="checkbox" id="ed-prop-fill" />
+                                    <span>Filled (use black to hide details)</span>
+                                </label>
+                                <label class="checkbox-row" id="ed-prop-soft-row">
+                                    <input type="checkbox" id="ed-prop-soft" />
+                                    <span>Soft blur instead of pixelate</span>
+                                </label>
+                                <p class="field-note" id="ed-prop-blur-note">For passwords, account numbers or faces, a filled black Box hides them most reliably.</p>
+                                <label class="checkbox-row" id="ed-prop-bg-row">
+                                    <input type="checkbox" id="ed-prop-bg" />
+                                    <span>Background behind text</span>
+                                </label>
+                                <button type="button" id="ed-prop-delete" class="btn btn-ghost btn-xs">Delete</button>
+                            </div>
+
+                            <hr class="divider" />
+
+                            <div class="field-group">
+                                <h3 class="side-title">Save</h3>
+                                <div class="segmented-control seg-3" role="group" aria-label="Save format">
+                                    <button type="button" class="seg-btn is-active" data-edformat="jpg">JPG</button>
+                                    <button type="button" class="seg-btn" data-edformat="png">PNG</button>
+                                    <button type="button" class="seg-btn" data-edformat="webp">WebP</button>
+                                </div>
+                                <div class="range-row" id="ed-quality-row">
+                                    <label class="muted" for="ed-quality">Quality</label>
+                                    <input type="range" id="ed-quality" min="10" max="100" value="90" />
+                                    <span id="ed-quality-val" class="muted">90</span>
+                                </div>
+                                <div class="inline-fields">
+                                    <label class="muted" for="ed-max-side">Longest side</label>
+                                    <input type="number" id="ed-max-side" class="input input-sm" min="16" placeholder="original" />
+                                    <span class="muted">px</span>
+                                </div>
+                                <p id="ed-out-desc" class="field-note"></p>
+                                <div class="btn-row">
+                                    <button type="button" id="ed-download" class="btn btn-primary btn-sm" disabled>Download Image</button>
+                                    <button type="button" id="ed-copy" class="btn btn-secondary btn-sm" disabled title="Copy the edited image as PNG">Copy</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+        </section>
+    </main>
+
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <script type="module" src="./js/app.js"></script>
+</body>
+</html>
