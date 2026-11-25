@@ -1813,3 +1813,313 @@ body.has-mobile-cta {
 body.has-mobile-cta .toast-container {
     bottom: 5rem;
 }
+
+/* ---------- Phones: one tool menu instead of the tab row ---------- */
+
+.tool-switcher {
+    display: none;
+    position: relative;
+    padding: 0 1rem 0.6rem;
+}
+
+.tool-switcher-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    min-height: 46px;
+    padding: 0.45rem 0.8rem;
+    font: inherit;
+    font-weight: 600;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    cursor: pointer;
+    text-align: left;
+}
+
+.tool-switcher-btn .tab-num,
+.tool-switcher-item .tab-num {
+    background: var(--accent);
+    color: var(--accent-fg);
+}
+
+.tool-switcher-caret {
+    margin-left: auto;
+    color: var(--muted);
+}
+
+.tool-switcher-menu {
+    position: absolute;
+    left: 1rem;
+    right: 1rem;
+    top: calc(100% - 0.3rem);
+    z-index: 75;
+    display: flex;
+    flex-direction: column;
+    padding: 0.35rem;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25);
+}
+
+.tool-switcher-menu[hidden] {
+    display: none;
+}
+
+.tool-switcher-item {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    min-height: 48px;
+    padding: 0.4rem 0.7rem;
+    font: inherit;
+    color: var(--text);
+    background: transparent;
+    border: 0;
+    border-radius: 8px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.tool-switcher-item .tab-num {
+    background: var(--card);
+    color: var(--muted);
+}
+
+.tool-switcher-item.is-active {
+    background: var(--accent-soft);
+    font-weight: 600;
+}
+
+.tool-switcher-item.is-active .tab-num {
+    background: var(--accent);
+    color: var(--accent-fg);
+}
+
+.tool-switcher-item:focus-visible,
+.tool-switcher-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+@media (max-width: 720px) {
+    .workspace-tabs {
+        display: none;
+    }
+
+    .tool-switcher {
+        display: block;
+    }
+}
+
+/* ---------- Editor: zoom, and the phone layout (dock + pull-up sheet) ---------- */
+
+.ed-fit-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    z-index: 4;
+    box-shadow: var(--shadow);
+}
+
+.ed-dock,
+.ed-sheet-head {
+    display: none;
+}
+
+@media (max-width: 720px) {
+    .app-header {
+        position: static;
+    }
+
+    body.ed-phone {
+        /* Room to scroll the picture up above the dock and any open sheet. */
+        padding-bottom: calc(var(--ed-dock-h, 120px) + var(--ed-sheet-h, 0px) + 12px);
+    }
+
+    body.ed-phone .toast-container {
+        bottom: calc(var(--ed-dock-h, 120px) + var(--ed-sheet-h, 0px) + 10px);
+    }
+
+    body.ed-phone #ws-edit .ed-stage {
+        height: calc(100svh - var(--ed-dock-h, 120px) - var(--ed-sheet-h, 0px) - 16px);
+        min-height: 220px;
+    }
+
+    .ed-dock:not([hidden]) {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 65;
+        padding: 0.45rem 0.5rem calc(0.45rem + env(safe-area-inset-bottom, 0px));
+        background: var(--surface);
+        border-top: 1px solid var(--rule);
+        box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.12);
+    }
+
+    .ed-dock .ed-toolbar {
+        flex-wrap: nowrap;
+        margin: 0;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .ed-dock .ed-toolbar::-webkit-scrollbar {
+        display: none;
+    }
+
+    .ed-dock .tool-group {
+        flex-wrap: nowrap;
+        flex: none;
+    }
+
+    .ed-dock-sheets {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.3rem;
+    }
+
+    .ed-dock-btn {
+        font: inherit;
+        font-size: 0.74rem;
+        line-height: 1.15;
+        min-height: 40px;
+        padding: 0.25rem 0.2rem;
+        border-radius: 8px;
+        border: 1px solid var(--rule);
+        background: var(--card);
+        color: var(--text);
+        cursor: pointer;
+    }
+
+    .ed-dock-btn.is-active {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+        color: var(--accent-text);
+        font-weight: 600;
+    }
+
+    .ed-dock-btn:disabled {
+        opacity: 0.45;
+    }
+
+    /* The side panel becomes a sheet above the dock, one section at a time. */
+    body.ed-phone #ed-side {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: var(--ed-dock-h, 120px);
+        z-index: 64;
+        max-height: 46svh;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        background: var(--surface);
+        border-top: 1px solid var(--rule);
+        border-radius: 14px 14px 0 0;
+        box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.18);
+        transform: translateY(110%);
+        visibility: hidden;
+        transition: transform 0.2s ease, visibility 0.2s;
+    }
+
+    body.ed-phone #ed-side.is-open {
+        transform: none;
+        visibility: visible;
+    }
+
+    body.ed-phone #ed-side .panel-card {
+        border: 0;
+        box-shadow: none;
+        padding-top: 0.2rem;
+    }
+
+    body.ed-phone #ed-side .sticky-panel {
+        position: static;
+        max-height: none;
+    }
+
+    body.ed-phone #ed-side .ed-sheet-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        padding: 0.55rem 1rem 0.35rem;
+        background: var(--surface);
+    }
+
+    body.ed-phone #ed-side [data-sheet-section],
+    body.ed-phone #ed-side .divider {
+        display: none;
+    }
+
+    body.ed-phone #ed-side[data-sheet="rotate"] [data-sheet-section="rotate"],
+    body.ed-phone #ed-side[data-sheet="adjust"] [data-sheet-section="adjust"],
+    body.ed-phone #ed-side[data-sheet="selected"] [data-sheet-section="selected"]:not([hidden]),
+    body.ed-phone #ed-side[data-sheet="save"] [data-sheet-section="save"] {
+        display: flex;
+    }
+
+    body.ed-phone #ed-side .side-title {
+        display: none; /* the sheet header names the section */
+    }
+
+    body.ed-phone #ed-side[data-sheet="rotate"] [data-sheet-section="rotate"] .side-title {
+        display: block; /* two sections share this sheet */
+    }
+
+    body.ed-phone .ed-crop-bar:not([hidden]) {
+        position: fixed;
+        left: 0.5rem;
+        right: 0.5rem;
+        bottom: calc(var(--ed-dock-h, 120px) + 0.5rem);
+        z-index: 66;
+        margin: 0;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+        background: var(--surface);
+    }
+}
+
+.chooser-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.chooser-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
+    width: 100%;
+    min-height: 52px;
+    padding: 0.6rem 0.8rem;
+    font: inherit;
+    text-align: left;
+    color: var(--text);
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.chooser-item span {
+    color: var(--muted);
+    font-size: 0.82rem;
+}
+
+.chooser-item:hover,
+.chooser-item:focus-visible {
+    border-color: var(--accent);
+    outline: none;
+    background: var(--accent-soft);
+}

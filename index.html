@@ -374,6 +374,7 @@
                                 <div class="dropzone-prompt"><strong>Drop an image here</strong> or click to choose</div>
                             </div>
                             <canvas id="ed-canvas" hidden></canvas>
+                            <button type="button" id="ed-fit-btn" class="ed-fit-btn btn btn-secondary btn-xs" hidden>Fit to screen</button>
                             <textarea id="ed-inline-text" class="ed-inline-text" hidden aria-label="Annotation text"></textarea>
                         </div>
                         <div id="ed-cut-bar" class="ed-crop-bar" hidden>
@@ -406,10 +407,10 @@
                     </div>
                 </div>
 
-                <aside class="ws-side-col">
+                <aside class="ws-side-col" id="ed-side">
                     <div class="panel-card sticky-panel">
                         <div class="form-stack">
-                            <div class="field-group">
+                            <div class="field-group" data-sheet-section="rotate">
                                 <h3 class="side-title">Rotate &amp; flip</h3>
                                 <div class="btn-row">
                                     <button type="button" id="ed-rot-left" class="btn btn-ghost btn-xs" title="Rotate left" disabled>⟲ 90°</button>
@@ -424,7 +425,7 @@
                                 </div>
                             </div>
 
-                            <div class="field-group">
+                            <div class="field-group" data-sheet-section="rotate">
                                 <h3 class="side-title">Canvas</h3>
                                 <button type="button" id="ed-cut-btn" class="btn btn-ghost btn-xs" disabled title="Remove a horizontal or vertical strip and join the rest">Cut out a strip…</button>
                                 <div class="inline-fields">
@@ -437,7 +438,7 @@
                                 <button type="button" id="ed-square-btn" class="btn btn-ghost btn-xs" disabled title="Add borders in the border colour to make the image square">Pad to square</button>
                             </div>
 
-                            <div class="field-group">
+                            <div class="field-group" data-sheet-section="adjust">
                                 <h3 class="side-title">Adjust</h3>
                                 <div class="range-row">
                                     <label class="muted" for="ed-brightness">Brightness</label>
@@ -475,7 +476,7 @@
                                 <button type="button" id="ed-reset-adjust" class="btn btn-ghost btn-xs" disabled>Reset adjustments</button>
                             </div>
 
-                            <div id="ed-props" class="field-group ed-props" hidden>
+                            <div id="ed-props" class="field-group ed-props" data-sheet-section="selected" hidden>
                                 <h3 class="side-title" id="ed-props-title">Selected</h3>
                                 <label class="field-label" for="ed-prop-text" id="ed-prop-text-label">Text</label>
                                 <textarea id="ed-prop-text" class="input input-sm" rows="2"></textarea>
@@ -512,7 +513,7 @@
 
                             <hr class="divider" />
 
-                            <div class="field-group">
+                            <div class="field-group" data-sheet-section="save">
                                 <h3 class="side-title">Save</h3>
                                 <div class="segmented-control seg-3" role="group" aria-label="Save format">
                                     <button type="button" class="seg-btn is-active" data-edformat="jpg">JPG</button>

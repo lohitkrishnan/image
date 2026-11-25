@@ -321,6 +321,10 @@ export function initEditWorkspace({ root, toast }) {
     let photoLayer = null;
     let photoDirty = true;
     let drag = null;
+    let userZoom = { z: 1, px: 0, py: 0 }; // extra zoom and pan on top of "fit"
+    let zoomRegionKey = '';
+    const pointers = new Map(); // active pointers on the canvas, for pinch
+    let pinch = null;
     const lastStyle = {
         text: { color: '#e11d48', v: 24, bg: false },
         arrow: { color: '#e11d48', v: 20 },
@@ -532,13 +536,41 @@ export function initEditWorkspace({ root, toast }) {
         const region = cropMode ? { x: 0, y: 0, w: Tw, h: Th } : cropRect();
         const pad = cropMode ? 28 : 16;
         const scale = Math.min((cssW - 2 * pad) / region.w, (cssH - 2 * pad) / region.h);
+        const baseOx = (cssW - region.w * scale) / 2 - region.x * scale;
+        const baseOy = (cssH - region.h * scale) / 2 - region.y * scale;
+        // A different region (crop, rotation, new image) starts again from "fit".
+        const key = [region.x, region.y, region.w, region.h].map((v) => Math.round(v)).join(',');
+        if (key !== zoomRegionKey) {
+            zoomRegionKey = key;
+            userZoom = { z: 1, px: 0, py: 0 };
+        }
+        const { z, px, py } = userZoom;
         view = {
-            scale, dpr, cssW, cssH, region,
-            ox: (cssW - region.w * scale) / 2 - region.x * scale,
-            oy: (cssH - region.h * scale) / 2 - region.y * scale,
+            scale: scale * z, dpr, cssW, cssH, region,
+            ox: baseOx * z + px,
+            oy: baseOy * z + py,
         };
+        $('ed-fit-btn').hidden = z <= 1.01;
         photoDirty = true;
         return true;
+    }
+
+    // ---------- Zoom: pinch (touch), Ctrl/⌘ + scroll or trackpad pinch (desktop) ----------
+
+    /** Zoom by `factor` keeping the screen point (mx, my) fixed. */
+    function zoomAt(factor, mx, my) {
+        const z = clamp(userZoom.z * factor, 1, 8);
+        const f = z / userZoom.z;
+        userZoom = { z, px: mx - f * (mx - userZoom.px), py: my - f * (my - userZoom.py) };
+        if (z <= 1.001) userZoom = { z: 1, px: 0, py: 0 };
+        fitView();
+        draw();
+    }
+
+    function resetZoom() {
+        userZoom = { z: 1, px: 0, py: 0 };
+        fitView();
+        draw();
     }
 
     const toScreen = (x, y) => ({ x: view.ox + x * view.scale, y: view.oy + y * view.scale });
@@ -876,8 +908,50 @@ export function initEditWorkspace({ root, toast }) {
 
     // ---------- Pointer handling ----------
 
+    function cancelDragForPinch() {
+        if (!drag) return;
+        const d = drag;
+        drag = null;
+        if (d.kind === 'crop-move' || d.kind === 'crop-handle') {
+            cropDraft = d.start;
+        } else if (d.kind === 'cut') {
+            cutBand = null;
+            updateCutBar();
+        } else if (pending) {
+            // Undo the half-done move or shape without recording it.
+            const before = pending;
+            pending = null;
+            geomBase = null;
+            state = clone(before);
+            if (selectedId && !state.annots.some((a) => a.id === selectedId)) selectedId = null;
+            renderProps();
+        }
+    }
+
+    function pinchInfo() {
+        const pts = [...pointers.values()];
+        const r = canvas.getBoundingClientRect();
+        return {
+            d: Math.max(1, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)),
+            mx: (pts[0].x + pts[1].x) / 2 - r.left,
+            my: (pts[0].y + pts[1].y) / 2 - r.top,
+        };
+    }
+
     canvas.addEventListener('pointerdown', (e) => {
-        if (!img || e.button > 0) return;
+        if (!img) return;
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pointers.size === 2) {
+            // Second finger: this is a pinch or two-finger pan, not an edit.
+            finishInlineEdit();
+            cancelDragForPinch();
+            canvas.setPointerCapture(e.pointerId);
+            pinch = { ...pinchInfo(), z0: userZoom.z, px0: userZoom.px, py0: userZoom.py };
+            draw();
+            return;
+        }
+        if (pointers.size > 2 || pinch) return;
+        if (e.button > 0) return;
         if (editingId != null) {
             finishInlineEdit();
             return;
@@ -949,6 +1023,20 @@ export function initEditWorkspace({ root, toast }) {
 
     canvas.addEventListener('pointermove', (e) => {
         if (!img) return;
+        if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pinch) {
+            if (pointers.size < 2) return;
+            const now = pinchInfo();
+            // Pan with the midpoint, zoom around it.
+            const z = clamp(pinch.z0 * (now.d / pinch.d), 1, 8);
+            const f = z / pinch.z0;
+            const px = now.mx - f * (pinch.mx - pinch.px0);
+            const py = now.my - f * (pinch.my - pinch.py0);
+            userZoom = z <= 1.001 ? { z: 1, px: 0, py: 0 } : { z, px, py };
+            fitView();
+            draw();
+            return;
+        }
         const r = canvas.getBoundingClientRect();
         const sx = e.clientX - r.left, sy = e.clientY - r.top;
         const p = toT(e.clientX, e.clientY);
@@ -1033,7 +1121,15 @@ export function initEditWorkspace({ root, toast }) {
         return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
     }
 
-    const endDrag = () => {
+    const endDrag = (e) => {
+        if (e && e.pointerId !== undefined) {
+            pointers.delete(e.pointerId);
+            if (pinch) {
+                // Stay in pinch mode until every finger has lifted.
+                if (pointers.size === 0) pinch = null;
+                return;
+            }
+        }
         if (!drag) return;
         const d = drag;
         drag = null;
@@ -1059,6 +1155,14 @@ export function initEditWorkspace({ root, toast }) {
     };
     canvas.addEventListener('pointerup', endDrag);
     canvas.addEventListener('pointercancel', endDrag);
+
+    canvas.addEventListener('wheel', (e) => {
+        if (!img || !(e.ctrlKey || e.metaKey)) return; // plain scrolling still scrolls the page
+        e.preventDefault();
+        const r = canvas.getBoundingClientRect();
+        const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+        zoomAt(Math.exp(-delta * 0.01), e.clientX - r.left, e.clientY - r.top);
+    }, { passive: false });
 
     canvas.addEventListener('dblclick', (e) => {
         if (!img || cropMode) return;
@@ -1178,6 +1282,7 @@ export function initEditWorkspace({ root, toast }) {
     }
 
     function renderProps() {
+        updatePhoneSoon();
         const a = state?.annots.find((x) => x.id === selectedId);
         const panel = $('ed-props');
         panel.hidden = !a;
@@ -1736,6 +1841,117 @@ export function initEditWorkspace({ root, toast }) {
     });
 
     $('ed-download').addEventListener('click', exportImage);
+    $('ed-fit-btn').addEventListener('click', resetZoom);
+
+    // ---------- Phone layout ----------
+    // Below 720px wide, the tools move into a dock fixed to the bottom of the screen and the
+    // side panel becomes a pull-up sheet showing one section at a time, so the picture stays
+    // in view. The same controls are reused; nothing is duplicated.
+    const phoneMq = matchMedia('(max-width: 720px)');
+    const toolbar = root.querySelector('.ed-toolbar');
+    const toolbarHome = { parent: toolbar.parentElement, next: toolbar.nextElementSibling };
+    const side = $('ed-side');
+    const dock = document.createElement('div');
+    dock.className = 'ed-dock';
+    dock.hidden = true;
+    const dockTools = document.createElement('div');
+    dockTools.className = 'ed-dock-tools';
+    const dockSheets = document.createElement('div');
+    dockSheets.className = 'ed-dock-sheets';
+    dockSheets.setAttribute('role', 'group');
+    dockSheets.setAttribute('aria-label', 'Panels');
+    const SHEETS = [
+        ['rotate', 'Rotate & canvas'],
+        ['adjust', 'Adjust & filters'],
+        ['selected', 'Selected item'],
+        ['save', 'Save'],
+    ];
+    const sheetBtns = SHEETS.map(([key, label]) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'ed-dock-btn';
+        b.dataset.sheet = key;
+        b.textContent = label;
+        b.setAttribute('aria-expanded', 'false');
+        b.setAttribute('aria-controls', 'ed-side');
+        b.addEventListener('click', () => openSheet(side.dataset.sheet === key && side.classList.contains('is-open') ? null : key));
+        dockSheets.appendChild(b);
+        return b;
+    });
+    dock.append(dockTools, dockSheets);
+    root.appendChild(dock);
+
+    const sheetHead = document.createElement('div');
+    sheetHead.className = 'ed-sheet-head';
+    const sheetTitle = document.createElement('strong');
+    const sheetClose = document.createElement('button');
+    sheetClose.type = 'button';
+    sheetClose.className = 'btn btn-ghost btn-sm';
+    sheetClose.textContent = 'Done';
+    sheetClose.addEventListener('click', () => openSheet(null));
+    sheetHead.append(sheetTitle, sheetClose);
+    side.prepend(sheetHead);
+
+    let phoneActive = false;
+
+    function openSheet(key) {
+        if (key) {
+            side.dataset.sheet = key;
+            side.classList.add('is-open');
+            sheetTitle.textContent = SHEETS.find(([k]) => k === key)[1];
+        } else {
+            side.classList.remove('is-open');
+        }
+        sheetBtns.forEach((b) => {
+            const on = side.classList.contains('is-open') && b.dataset.sheet === side.dataset.sheet;
+            b.classList.toggle('is-active', on);
+            b.setAttribute('aria-expanded', String(on));
+        });
+        requestAnimationFrame(layoutPhone);
+    }
+
+    // Size the stage to the space between the top of the screen and the dock (and the sheet,
+    // when open) so the whole picture stays visible while adjusting.
+    function layoutPhone() {
+        if (!phoneActive) return;
+        const dockH = dock.offsetHeight;
+        const sheetH = side.classList.contains('is-open') ? side.offsetHeight : 0;
+        document.documentElement.style.setProperty('--ed-dock-h', `${dockH}px`);
+        document.documentElement.style.setProperty('--ed-sheet-h', `${sheetH}px`);
+        if (side.classList.contains('is-open')) {
+            // Wait a frame for the stage to take its new height, then bring it to the top.
+            requestAnimationFrame(() => {
+                const y = stage.getBoundingClientRect().top + window.scrollY - 8;
+                if (Math.abs(window.scrollY - y) > 4) window.scrollTo({ top: y, behavior: 'smooth' });
+            });
+        }
+    }
+
+    function updatePhone() {
+        const active = phoneMq.matches && !root.hidden && !!img;
+        if (active !== phoneActive) {
+            phoneActive = active;
+            document.body.classList.toggle('ed-phone', active);
+            dock.hidden = !active;
+            if (active) {
+                dockTools.appendChild(toolbar);
+            } else {
+                toolbarHome.parent.insertBefore(toolbar, toolbarHome.next);
+                openSheet(null);
+                document.documentElement.style.removeProperty('--ed-dock-h');
+                document.documentElement.style.removeProperty('--ed-sheet-h');
+            }
+        }
+        const selBtn = sheetBtns.find((b) => b.dataset.sheet === 'selected');
+        selBtn.disabled = selectedId == null;
+        if (selectedId == null && side.dataset.sheet === 'selected' && side.classList.contains('is-open')) openSheet(null);
+        if (active) requestAnimationFrame(layoutPhone);
+    }
+
+    phoneMq.addEventListener?.('change', updatePhone);
+    new MutationObserver(updatePhone).observe(root, { attributes: true, attributeFilter: ['hidden'] });
+    new ResizeObserver(() => { if (phoneActive) layoutPhone(); }).observe(side);
+
 
     // ---------- Loading ----------
 
@@ -1776,9 +1992,15 @@ export function initEditWorkspace({ root, toast }) {
                 draw();
             });
             updateOutDesc();
+            updatePhoneSoon();
         } catch (err) {
             toast(err.message || String(err), 'error');
         }
+    }
+
+    // updatePhone is defined further down (after the controls it moves exist).
+    function updatePhoneSoon() {
+        requestAnimationFrame(() => updatePhone?.());
     }
 
     function handleFiles(files) {

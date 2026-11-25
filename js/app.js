@@ -4,7 +4,7 @@ import { initEditWorkspace } from './ws-edit.js';
 import { initPdfWorkspace } from './ws-pdf.js';
 import { initMergeWorkspace } from './ws-merge.js';
 import { initGifWorkspace } from './ws-gif.js';
-import { initMobileCta, wireCameraButtons } from './mobile.js';
+import { initMobileCta, wireCameraButtons, initToolSwitcher, takeSharedFiles, chooseTool } from './mobile.js';
 import { imageNotices, IS_IOS } from './image-io.js';
 
 const THEME_KEY = 'lk_image_theme';
@@ -138,6 +138,29 @@ function initApp() {
     switchToTab(panels[initial] ? initial : 'resize');
     initOffline(toast);
     wireCameraButtons();
+    initToolSwitcher();
+    openSharedFiles();
+
+    // Photos shared into the installed app from another app (Android's share menu).
+    async function openSharedFiles() {
+        const files = await takeSharedFiles('lk-image-studio-shared');
+        if (!files.length) return;
+        const n = files.length;
+        const many = n > 1;
+        const go = (tab, fn) => () => {
+            switchToTab(tab);
+            fn();
+        };
+        const options = [
+            { label: 'Resize & Convert', desc: 'Resize, compress or change format', onPick: go('resize', () => workspaces.resize.handleFiles(files)) },
+            { label: 'Passport Photo', desc: many ? 'Uses the first photo' : 'Make a passport or visa photo', onPick: go('photo', () => workspaces.photo.handleFiles([files[0]])) },
+            { label: 'Edit & Annotate', desc: many ? 'Opens the first photo' : 'Crop, adjust, add text and arrows', onPick: go('edit', () => editWs.loadFile(files[0])) },
+            { label: 'Images to PDF', desc: 'Put the photos in a PDF', onPick: go('pdf', () => workspaces.pdf.handleFiles(files)) },
+        ];
+        if (many) options.push({ label: 'Merge', desc: 'Join them into one image', onPick: go('merge', () => workspaces.merge.handleFiles(files)) });
+        options.push({ label: 'GIF', desc: many ? 'Make a slideshow' : 'Play or make a GIF', onPick: go('gif', () => workspaces.gif.handleFiles(files)) });
+        chooseTool({ title: `What would you like to do with ${many ? `these ${n} photos` : 'this photo'}?`, options });
+    }
     const reducedSeen = new Set();
     imageNotices.addEventListener('reduced', (e) => {
         const { name, from, to } = e.detail;
