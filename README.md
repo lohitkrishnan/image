@@ -74,3 +74,13 @@ the page offer a Reload button rather than refreshing under someone's work.
 python3 -m http.server 8000
 # open http://localhost:8000/
 ```
+
+## Licence
+
+The code in this repository is released under the [MIT License](LICENSE): you may use, change
+and share it, including commercially, as long as the copyright notice stays with it.
+Third-party files keep their own licences, listed above.
+
+Image Studio is part of [lohitkrishnan.com](https://lohitkrishnan.com). Its companion tool,
+[PDF Studio](https://lohitkrishnan.com/pdf/) ([source](https://github.com/lohitkrishnan/pdf)),
+works the same way for PDFs.
